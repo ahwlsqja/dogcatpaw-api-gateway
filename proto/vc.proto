@@ -1,0 +1,97 @@
+// proto/vc.proto
+syntax = "proto3";
+
+package vc;
+
+service VCService {
+  rpc RegisterAuth (RegisterAuthRequest) returns (RegisterAuthResponse);
+  rpc UpdateGuardianInfo (UpdateGuardianRequest) returns (UpdateGuardianResponse);
+  rpc UpdateShelterInfo (UpdateShelterRequest) returns (UpdateShelterResponse);
+  rpc StoreVC (StoreVCRequest) returns (StoreVCResponse);
+  rpc GetVC (GetVCRequest) returns (GetVCResponse);
+  rpc GetVCsByWallet (GetVCsByWalletRequest) returns (GetVCsByWalletResponse);
+}
+
+message RegisterAuthRequest {
+  string walletAddress = 1;
+}
+
+message RegisterAuthResponse {
+  bool success = 1;
+  int32 authId = 2;
+  string message = 3;
+  string error = 4;
+}
+
+message StoreVCRequest {
+  string guardianAddress = 1;
+  string petDID = 2;
+  string vcJwt = 3;
+  string metadata = 4;
+}
+
+message StoreVCResponse {
+  bool success = 1;
+  int32 vcId = 2;
+  string message = 3;
+  string error = 4;
+}
+
+message GetVCRequest {
+  string petDID = 1;
+  string guardianAddress = 2;
+}
+
+message GetVCResponse {
+  bool success = 1;
+  string vcJwt = 2;
+  string metadata = 3;
+  string createdAt = 4;
+  string error = 5;
+}
+
+message GetVCsByWalletRequest {
+  string walletAddress = 1;
+}
+
+message GetVCsByWalletResponse {
+  repeated VC vcs = 1;
+  string error = 2;
+}
+
+message VC {
+  string petDID = 1;
+  string vcJwt = 2;
+  string vcType = 3;
+  string createdAt = 4;
+}
+
+message UpdateGuardianRequest {
+  string walletAddress = 1;
+  string email = 2;
+  string phone = 3;
+  string name = 4;
+  bool isEmailVerified = 5;
+}
+
+message UpdateGuardianResponse {
+  bool success = 1;
+  int32 guardianId = 2;
+  string message = 3;
+  string error = 4;
+}
+
+message UpdateShelterRequest {
+  string walletAddress = 1;
+  string name = 2;
+  string location = 3;
+  string licenseNumber = 4;
+  int32 capacity = 5;
+}
+
+message UpdateShelterResponse {
+  bool success = 1;
+  int32 shelterId = 2;
+  string message = 3;
+  string error = 4;
+}
