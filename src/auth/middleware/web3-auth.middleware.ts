@@ -6,6 +6,24 @@ import Web3Token from 'web3-token';
 @Injectable()
 export class Web3AuthMiddleware implements NestMiddleware {
   async use(req: Request, res: Response, next: NextFunction) {
+    // 개발 환경에서는 더미 사용자 데이터 주입
+    const isDevelopment = process.env.NODE_ENV !== 'production';
+
+    if (isDevelopment) {
+      // 개발용 테스트 지갑 주소
+      const testAddress = req.headers.walletaddress as string || '0x1234567890123456789012345678901234567890';
+      req.user = {
+        address: testAddress.toLowerCase(),
+        walletAddress: testAddress.toLowerCase(),
+        tokenBody: {
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + 86400 // 24 hours
+        }
+      };
+      return next();
+    }
+
+    // 프로덕션 환경에서는 실제 인증 수행
     const token = req.headers.authorization as string;
     const walletAddress = req.headers.walletaddress as string;
 

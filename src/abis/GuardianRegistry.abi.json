@@ -1,0 +1,325 @@
+[
+  {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "_personalDataHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "string",
+        "name": "_ncpStorageURI",
+        "type": "string"
+      },
+      {
+        "internalType": "uint8",
+        "name": "_verificationMethod",
+        "type": "uint8"
+      }
+    ],
+    "name": "registerGuardian",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_guardianAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "_smsVerified",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "_emailVerified",
+        "type": "bool"
+      }
+    ],
+    "name": "verifyGuardian",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "_newPersonalDataHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "string",
+        "name": "_newNcpStorageURI",
+        "type": "string"
+      }
+    ],
+    "name": "updateGuardianData",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "deactivateGuardian",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_petDID",
+        "type": "string"
+      }
+    ],
+    "name": "linkPet",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_petDID",
+        "type": "string"
+      }
+    ],
+    "name": "unlinkPet",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_guardianAddress",
+        "type": "address"
+      }
+    ],
+    "name": "getGuardianProfile",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "guardianAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "personalDataHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "string",
+            "name": "ncpStorageURI",
+            "type": "string"
+          },
+          {
+            "internalType": "uint8",
+            "name": "verificationMethod",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "verificationLevel",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint48",
+            "name": "registeredAt",
+            "type": "uint48"
+          },
+          {
+            "internalType": "uint48",
+            "name": "lastUpdated",
+            "type": "uint48"
+          },
+          {
+            "internalType": "bool",
+            "name": "isActive",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct GuardianRegistry.GuardianProfile",
+        "name": "profile",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_guardianAddress",
+        "type": "address"
+      }
+    ],
+    "name": "getVerificationProof",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "smsVerified",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "emailVerified",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint48",
+            "name": "smsVerifiedAt",
+            "type": "uint48"
+          },
+          {
+            "internalType": "uint48",
+            "name": "emailVerifiedAt",
+            "type": "uint48"
+          },
+          {
+            "internalType": "address",
+            "name": "verifier",
+            "type": "address"
+          }
+        ],
+        "internalType": "struct GuardianRegistry.VerificationProof",
+        "name": "proof",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_guardianAddress",
+        "type": "address"
+      }
+    ],
+    "name": "getGuardianPets",
+    "outputs": [
+      {
+        "internalType": "string[]",
+        "name": "",
+        "type": "string[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getTotalGuardians",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_verifier",
+        "type": "address"
+      }
+    ],
+    "name": "grantVerifierRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "guardianAddress",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "verificationMethod",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint48",
+        "name": "timestamp",
+        "type": "uint48"
+      }
+    ],
+    "name": "GuardianRegistered",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "guardianAddress",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "method",
+        "type": "uint8"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "verifier",
+        "type": "address"
+      }
+    ],
+    "name": "GuardianVerified",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "guardianAddress",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "string",
+        "name": "petDID",
+        "type": "string"
+      }
+    ],
+    "name": "PetLinked",
+    "type": "event"
+  }
+]

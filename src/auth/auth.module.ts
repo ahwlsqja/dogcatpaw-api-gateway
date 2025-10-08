@@ -1,14 +1,10 @@
-import { CacheModule } from "@nestjs/cache-manager";
 import { Module } from "@nestjs/common";
 import { AuthController } from "./auth.controller";
 import { TokenService } from "./services/token.service";
+import { RedisModule } from "src/common/redis/redis.module";
 
 @Module({
-    imports: [
-        CacheModule.register({
-            isGlobal: true,
-        }),
-    ],
+    imports: [RedisModule],
     controllers: [AuthController],
     providers: [TokenService],
     exports: [TokenService]

@@ -4,6 +4,7 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { join } from 'path';
 import { VcController } from './vc.controller';
 import { VcService } from './vc.service';
+import { VcProxyService } from './vc.proxy.service';
 
 @Module({
   imports: [
@@ -27,7 +28,7 @@ import { VcService } from './vc.service';
     ]),
   ],
   controllers: [VcController],
-  providers: [VcService],
-  exports: [VcService],
+  providers: [VcService, VcProxyService],
+  exports: [VcService, VcProxyService],
 })
 export class VcModule {}

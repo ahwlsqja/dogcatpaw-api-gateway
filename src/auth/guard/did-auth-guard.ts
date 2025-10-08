@@ -16,6 +16,14 @@ export class DIDAuthGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
+    // 개발 환경에서는 모든 요청 통과
+    const isDevelopment = process.env.NODE_ENV !== 'production';
+
+    if (isDevelopment) {
+      console.log('개발모드에서는 검증하지 않습니다!!');
+      return true;
+    }
+
     const isPublic = this.reflector.get<boolean>(IS_PUBLIC_KEY, context.getHandler());
     if (isPublic) return true;
 

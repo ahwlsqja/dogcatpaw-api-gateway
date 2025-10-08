@@ -2,23 +2,15 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
-import { ConfigService } from "@nestjs/config";
-import Redis from 'ioredis';
-import { envVariableKeys } from 'src/common/const/env.const';
+import { RedisService } from 'src/common/redis/redis.service';
 
 @Injectable()
 export class TokenService {
-  private redis: Redis;
-  
+
   constructor(
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
-    private readonly configService: ConfigService,
+    private readonly redisService: RedisService,
   ) {
-    this.redis = new Redis({
-      host: this.configService.get<string>(envVariableKeys.redishost) || 'localhost',
-      port: this.configService.get<number>(envVariableKeys.redisport) || 6379,
-      password: this.configService.get<string>(envVariableKeys.redispassword),
-    });
   }
 
   /**
@@ -34,7 +26,7 @@ export class TokenService {
     }
 
     // 2. Redis 캐시 확인 (중간)
-    const redisCache = await this.redis.get(cacheKey);
+    const redisCache = await this.redisService.get(cacheKey);
     if (redisCache) {
       const data = JSON.parse(redisCache);
       // 로컬 캐시에도 저장 (TTL 짧게)
@@ -53,7 +45,7 @@ export class TokenService {
     const data = { address };
 
     // 1. Redis에 저장 (영속성)
-    await this.redis.setex(cacheKey, ttl, JSON.stringify(data));
+    await this.redisService.setex(cacheKey, ttl, JSON.stringify(data));
 
     // 2. 로컬 캐시에도 저장 (빠른 조회)
     await this.cacheManager.set(cacheKey, data, Math.min(ttl, 300)); // 최대 5분
@@ -66,7 +58,7 @@ export class TokenService {
     const blockKey = `blocked:${token}`;
     
     // Redis에만 저장 (로컬 캐시 불필요)
-    await this.redis.setex(blockKey, ttl, '1');
+    await this.redisService.setex(blockKey, ttl, '1');
   }
 
   /**
@@ -74,7 +66,7 @@ export class TokenService {
    */
   async isTokenBlocked(token: string): Promise<boolean> {
     const blockKey = `blocked:${token}`;
-    const blocked = await this.redis.get(blockKey);
+    const blocked = await this.redisService.get(blockKey);
     return blocked === '1';
   }
 
@@ -83,11 +75,11 @@ export class TokenService {
    */
   async blockAllTokensByAddress(address: string): Promise<void> {
     const pattern = `token:*`;
-    const stream = this.redis.scanStream({ match: pattern });
+    const stream = this.redisService.scanStream({ match: pattern });
 
     for await (const keys of stream) {
       for (const key of keys) {
-        const data = await this.redis.get(key);
+        const data = await this.redisService.get(key);
         if (data) {
           const parsed = JSON.parse(data);
           if (parsed.address.toLowerCase() === address.toLowerCase()) {
@@ -95,7 +87,7 @@ export class TokenService {
             const token = key.replace('token:', '');
             await this.blockToken(token);
             // 캐시에서 삭제
-            await this.redis.del(key);
+            await this.redisService.del(key);
             await this.cacheManager.del(key);
           }
         }

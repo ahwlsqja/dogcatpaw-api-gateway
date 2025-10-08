@@ -1,0 +1,454 @@
+[
+  {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_name",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "_location",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "_licenseNumber",
+        "type": "string"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "_verificationHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "_capacity",
+        "type": "uint16"
+      }
+    ],
+    "name": "registerShelter",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_shelterAddress",
+        "type": "address"
+      }
+    ],
+    "name": "approveShelter",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_petDID",
+        "type": "string"
+      },
+      {
+        "internalType": "uint8",
+        "name": "_reason",
+        "type": "uint8"
+      },
+      {
+        "internalType": "string",
+        "name": "_notes",
+        "type": "string"
+      }
+    ],
+    "name": "processPetIntake",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_petDID",
+        "type": "string"
+      },
+      {
+        "internalType": "address",
+        "name": "_adopter",
+        "type": "address"
+      },
+      {
+        "internalType": "string",
+        "name": "_adoptionTerms",
+        "type": "string"
+      }
+    ],
+    "name": "processPetAdoption",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_petDID",
+        "type": "string"
+      },
+      {
+        "internalType": "uint8",
+        "name": "_newStatus",
+        "type": "uint8"
+      }
+    ],
+    "name": "updatePetStatus",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_petDID",
+        "type": "string"
+      },
+      {
+        "internalType": "address",
+        "name": "_toShelter",
+        "type": "address"
+      }
+    ],
+    "name": "transferPet",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_shelterAddress",
+        "type": "address"
+      }
+    ],
+    "name": "getShelterProfile",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "shelterAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "string",
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "location",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "licenseNumber",
+            "type": "string"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "verificationHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint8",
+            "name": "status",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint16",
+            "name": "capacity",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "currentOccupancy",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint48",
+            "name": "registeredAt",
+            "type": "uint48"
+          },
+          {
+            "internalType": "uint48",
+            "name": "lastUpdated",
+            "type": "uint48"
+          }
+        ],
+        "internalType": "struct ShelterRegistry.ShelterProfile",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_shelterAddress",
+        "type": "address"
+      }
+    ],
+    "name": "getShelterPets",
+    "outputs": [
+      {
+        "internalType": "string[]",
+        "name": "",
+        "type": "string[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_petDID",
+        "type": "string"
+      }
+    ],
+    "name": "getPetRecord",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "string",
+            "name": "petDID",
+            "type": "string"
+          },
+          {
+            "internalType": "address",
+            "name": "currentShelter",
+            "type": "address"
+          },
+          {
+            "internalType": "uint8",
+            "name": "status",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint48",
+            "name": "statusChangedAt",
+            "type": "uint48"
+          },
+          {
+            "internalType": "uint16",
+            "name": "daysInShelter",
+            "type": "uint16"
+          }
+        ],
+        "internalType": "struct ShelterRegistry.PetRecord",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_petDID",
+        "type": "string"
+      }
+    ],
+    "name": "getIntakeHistory",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "string",
+            "name": "petDID",
+            "type": "string"
+          },
+          {
+            "internalType": "address",
+            "name": "shelter",
+            "type": "address"
+          },
+          {
+            "internalType": "uint8",
+            "name": "reason",
+            "type": "uint8"
+          },
+          {
+            "internalType": "string",
+            "name": "notes",
+            "type": "string"
+          },
+          {
+            "internalType": "uint48",
+            "name": "intakeDate",
+            "type": "uint48"
+          },
+          {
+            "internalType": "address",
+            "name": "intakeStaff",
+            "type": "address"
+          }
+        ],
+        "internalType": "struct ShelterRegistry.IntakeRecord[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getTotalShelters",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getTotalIntakes",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getTotalAdoptions",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "shelterAddress",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "name",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "licenseNumber",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint48",
+        "name": "timestamp",
+        "type": "uint48"
+      }
+    ],
+    "name": "ShelterRegistered",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "string",
+        "name": "petDID",
+        "type": "string"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "shelter",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "reason",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint48",
+        "name": "timestamp",
+        "type": "uint48"
+      }
+    ],
+    "name": "PetIntake",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "string",
+        "name": "petDID",
+        "type": "string"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "shelter",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "adopter",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint48",
+        "name": "timestamp",
+        "type": "uint48"
+      }
+    ],
+    "name": "PetAdopted",
+    "type": "event"
+  }
+]

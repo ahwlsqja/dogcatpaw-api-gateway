@@ -9,6 +9,8 @@ const awsaccesekey = 'AWS_ACCESS_KEY_ID'
 const awssecretaccesskey = 'AWS_SECRET_ACCESS_KEY'
 const awsregion = 'AWS_REGION'
 const awss3bucketname = 'AWS_S3_BUCKET_NAME2'
+const emailuser = 'EMAIL_USER'
+const emailpassword = 'EMAIL_APP_PASSWORD'
 
 
 export const envVariableKeys = {
@@ -22,5 +24,7 @@ export const envVariableKeys = {
     awsaccesekey,
     awssecretaccesskey,
     awsregion,
-    awss3bucketname
+    awss3bucketname,
+    emailuser,
+    emailpassword
 }
