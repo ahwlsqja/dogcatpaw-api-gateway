@@ -24,8 +24,14 @@ export class GuardianService {
       this.adminSigner = new ethers.Wallet(adminPrivateKey, this.provider);
     }
 
+    // ConfigService에서 컨트랙트 주소 가져오기
+    const guardianRegistryAddress = this.configService.get<string>('GUARDIAN_REGISTRY_ADDRESS');
+    if (!guardianRegistryAddress) {
+      throw new Error('GUARDIAN_REGISTRY_ADDRESS is not configured in environment variables');
+    }
+
     this.guardianContract = new ethers.Contract(
-      getAddress('GuardianRegistry'),
+      guardianRegistryAddress,
       GuardianRegistryABI,
       this.provider  // 기본적으로 읽기 전용 provider 사용
     );
@@ -46,7 +52,7 @@ export class GuardianService {
     );
 
     return {
-      to: getAddress('GuardianRegistry'),
+      to: await this.guardianContract.getAddress(),
       data,
       from: guardianAddress,
       gasLimit: 0, // 프라이빗 네트워크 - 가스비 0
@@ -177,7 +183,7 @@ export class GuardianService {
     );
 
     return {
-      to: getAddress('GuardianRegistry'),
+      to: await this.guardianContract.getAddress(),
       data,
       from: guardianAddress,
       gasLimit: 0,
@@ -243,7 +249,7 @@ export class GuardianService {
     );
 
     return {
-      to: getAddress('GuardianRegistry'),
+      to: await this.guardianContract.getAddress(),
       data,
       from: guardianAddress,
       gasLimit: 0,
@@ -294,7 +300,7 @@ export class GuardianService {
     );
 
     return {
-      to: getAddress('GuardianRegistry'),
+      to: await this.guardianContract.getAddress(),
       data,
       from: guardianAddress,
       gasLimit: 0,

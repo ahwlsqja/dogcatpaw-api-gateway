@@ -22,12 +22,14 @@ export interface ABIItem {
 
 export type ContractABI = ABIItem[];
 
-// 컨트랙트 주소 설정 (환경변수로부터 가져오기)
+// 컨트랙트 주소 설정
+// WARNING: Do NOT use this at module initialization time!
+// Use ConfigService in service constructors instead
 export const CONTRACT_ADDRESSES = {
-  PetDIDRegistry: process.env.PET_DID_REGISTRY_ADDRESS || '',
-  GuardianRegistry: process.env.GUARDIAN_REGISTRY_ADDRESS || '',
-  ShelterRegistry: process.env.SHELTER_REGISTRY_ADDRESS || '',
-} as const;
+  PetDIDRegistry: '',
+  GuardianRegistry: '',
+  ShelterRegistry: '',
+} as Record<string, string>;
 
 // 네트워크 설정
 export const NETWORK_CONFIG = {

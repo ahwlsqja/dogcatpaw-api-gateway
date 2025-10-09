@@ -1,10 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { CreateVcDto } from './dto/create-vc.dto';
-import { UpdateVcDto } from './dto/update-vc.dto';
 
 @Injectable()
 export class VcService {
-  create(createVcDto: CreateVcDto) {
+  create() {
     return 'This action adds a new vc';
   }
 
@@ -16,9 +14,7 @@ export class VcService {
     return `This action returns a #${id} vc`;
   }
 
-  update(id: number, updateVcDto: UpdateVcDto) {
-    return `This action updates a #${id} vc`;
-  }
+
 
   remove(id: number) {
     return `This action removes a #${id} vc`;

@@ -15,6 +15,10 @@ import {
   GetVCResponseDto,
   GetVCsByWalletRequestDto,
   GetVCsByWalletResponseDto,
+  CheckAuthResponseDto,
+  CheckAuthRequestDto,
+  HealthCheckRequestDto,
+  HealthCheckResponseDto,
 } from './dto/grpc-vc-req.dto';
 
 /**
@@ -56,7 +60,11 @@ export class VcProxyService implements OnModuleInit {
     return firstValueFrom(this.vcService.GetVCsByWallet(data));
   }
 
-  async checkAuth(data: { walletAddress: string }): Promise<any> {
+  async checkAuth(data: CheckAuthRequestDto): Promise<CheckAuthResponseDto> {
     return firstValueFrom(this.vcService.CheckAuth(data));
+  }
+
+  async healthCheck(data: HealthCheckRequestDto): Promise<HealthCheckResponseDto> {
+    return firstValueFrom(this.vcService.HealthCheck(data));
   }
 }

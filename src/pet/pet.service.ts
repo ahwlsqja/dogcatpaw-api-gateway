@@ -24,8 +24,14 @@ export class PetService {
       this.adminSigner = new ethers.Wallet(adminPrivateKey, this.provider);
     }
 
+    // ConfigService에서 컨트랙트 주소 가져오기
+    const petDIDRegistryAddress = this.configService.get<string>('PET_DID_REGISTRY_ADDRESS');
+    if (!petDIDRegistryAddress) {
+      throw new Error('PET_DID_REGISTRY_ADDRESS is not configured in environment variables');
+    }
+
     this.petContract = new ethers.Contract(
-      getAddress('PetDIDRegistry'),
+      petDIDRegistryAddress,
       PetDIDRegistryABI,
       this.provider  // 기본적으로 읽기 전용 provider 사용
     );
@@ -48,7 +54,7 @@ export class PetService {
     );
 
     return {
-      to: getAddress('PetDIDRegistry'),
+      to: await this.petContract.getAddress(),
       data,
       from: this.adminSigner?.address,
       gasLimit: 0, // 프라이빗 네트워크
@@ -168,7 +174,7 @@ export class PetService {
     );
 
     return {
-      to: getAddress('PetDIDRegistry'),
+      to: await this.petContract.getAddress(),
       data,
       from: this.adminSigner?.address,
       gasLimit: 0,

@@ -133,4 +133,30 @@ export class VcController {
       guardianAddress: req.user.address,
     });
   }
+
+  /**
+   * Health Check - VC 서비스 gRPC 연결 상태 확인
+   */
+  @Get('health')
+  async healthCheck() {
+    try {
+      const result = await this.vcProxyService.healthCheck({
+        service: 'VCService',
+      });
+      return {
+        status: 'success',
+        grpcStatus: result.status,
+        message: result.message,
+        timestamp: result.timestamp,
+        version: result.version,
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        grpcStatus: 'NOT_SERVING',
+        message: error.message || 'Failed to connect to VC gRPC service',
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
 }

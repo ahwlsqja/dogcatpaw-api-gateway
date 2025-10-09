@@ -1,6 +1,6 @@
-import * as PetDIDRegistryABI from './PetDIDRegistry.abi.json';
-import * as GuardianRegistryABI from './GuardianRegistry.abi.json';
-import * as ShelterRegistryABI from './ShelterRegistry.abi.json';
+import PetDIDRegistryABIRaw from './PetDIDRegistry.abi.json';
+import GuardianRegistryABIRaw from './GuardianRegistry.abi.json';
+import ShelterRegistryABIRaw from './ShelterRegistry.abi.json';
 
 import {
   ContractABI,
@@ -12,9 +12,9 @@ import {
 } from './types';
 
 // ABI를 ContractABI 타입으로 캐스팅
-const petDIDRegistryABI = PetDIDRegistryABI as unknown as ContractABI;
-const guardianRegistryABI = GuardianRegistryABI as unknown as ContractABI;
-const shelterRegistryABI = ShelterRegistryABI as unknown as ContractABI;
+const petDIDRegistryABI = PetDIDRegistryABIRaw as ContractABI;
+const guardianRegistryABI = GuardianRegistryABIRaw as ContractABI;
+const shelterRegistryABI = ShelterRegistryABIRaw as ContractABI;
 
 // 기본 export (기존 코드와의 호환성 유지)
 export {

@@ -11,6 +11,8 @@ import { EmailModule } from './email/email.module';
 import { GuardianModule } from './guardian/guardian.module';
 import { PetModule } from './pet/pet.module';
 import { RedisModule } from './common/redis/redis.module';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { ResponseTimeInterceptor } from './common/interceptor/response-time.interceptor';
 
 @Module({
   imports: [
@@ -35,8 +37,10 @@ import { RedisModule } from './common/redis/redis.module';
     GuardianModule,
     PetModule
   ],
-  controllers: [AppController],
-  providers: [AppService],
+  providers: [{
+    provide: APP_INTERCEPTOR,
+    useClass: ResponseTimeInterceptor
+  }],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

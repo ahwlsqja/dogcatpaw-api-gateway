@@ -10,6 +10,8 @@ service VCService {
   rpc StoreVC (StoreVCRequest) returns (StoreVCResponse);
   rpc GetVC (GetVCRequest) returns (GetVCResponse);
   rpc GetVCsByWallet (GetVCsByWalletRequest) returns (GetVCsByWalletResponse);
+  rpc CheckAuth (CheckAuthRequest) returns (CheckAuthResponse);
+  rpc HealthCheck (HealthCheckRequest) returns (HealthCheckResponse);
 }
 
 message RegisterAuthRequest {
@@ -94,4 +96,32 @@ message UpdateShelterResponse {
   int32 shelterId = 2;
   string message = 3;
   string error = 4;
+}
+
+message CheckAuthRequest {
+  string walletAddress = 1;
+}
+
+message CheckAuthResponse {
+  bool success = 1;
+  int32 authId = 2;
+  string message = 3;
+  string error = 4;
+}
+
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+    SERVICE_UNKNOWN = 3;
+  }
+  ServingStatus status = 1;
+  string message = 2;
+  string timestamp = 3;
+  string version = 4;
 }

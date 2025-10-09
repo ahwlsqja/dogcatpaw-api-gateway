@@ -5,7 +5,18 @@ export class RegisterAuthRequestDto {
   walletAddress: string;
 }
 
+export class CheckAuthRequestDto {
+  walletAddress: string;
+}
+
 export class RegisterAuthResponseDto {
+  success: boolean;
+  authId?: number;
+  message?: string;
+  error?: string;
+}
+
+export class CheckAuthResponseDto {
   success: boolean;
   authId?: number;
   message?: string;
@@ -86,4 +97,23 @@ export class VCDto {
 export class GetVCsByWalletResponseDto {
   vcs?: VCDto[];
   error?: string;
+}
+
+// Health Check DTO
+export class HealthCheckRequestDto {
+  service?: string;
+}
+
+export enum ServingStatus {
+  UNKNOWN = 0,
+  SERVING = 1,
+  NOT_SERVING = 2,
+  SERVICE_UNKNOWN = 3,
+}
+
+export class HealthCheckResponseDto {
+  status: ServingStatus;
+  message?: string;
+  timestamp?: string;
+  version?: string;
 }

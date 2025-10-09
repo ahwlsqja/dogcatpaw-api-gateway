@@ -29,22 +29,32 @@ export class GuardianController {
   ) {
     const guardianAddress = req.user?.address;
 
-    // 1. VC Service에 Auth 확인
-    const authCheck = await this.vcProxyService.checkAuth({
+    // 1. VC Service에 Auth 확인 (이메일 인증 여부 확인)
+    let authCheck;
+    authCheck = await this.vcProxyService.checkAuth({
       walletAddress: guardianAddress
     });
 
-    if (!authCheck || !authCheck.isAuthenticated) {
+    // checkAuth returns: { success: boolean, authId: number, message: string, error?: string }
+    if (!authCheck || !authCheck.success) {
       return {
         success: false,
-        error: 'Email verification required. Please verify your email first.'
+        error: '이메일 인증이 필요합니다! 먼저 인증해주세요!'
+      };
+    }
+    
+    // 2. 이메일 필수 검증
+    if (!dto.email) {
+      return {
+        success: false,
+        error: '이메일은 필수 항목입니다'
       };
     }
 
-    // 2. 블록체인에 보호자 등록
+    // 3. 블록체인에 보호자 등록
     const personalDataHash = ethers.keccak256(
       ethers.toUtf8Bytes(JSON.stringify({
-        email: dto.email || authCheck.email || '',
+        email: dto.email,
         phone: dto.phone || '',
         name: dto.name || '',
         timestamp: Date.now()
@@ -59,11 +69,11 @@ export class GuardianController {
       dto.signedTx
     );
 
-    // 3. 트랜잭션 성공 후 VC Service에 Guardian 정보 저장
+    // 4. 트랜잭션 성공 후 VC Service에 Guardian 정보 저장
     if (txResult.success) {
       const vcResult = await this.vcProxyService.updateGuardianInfo({
         walletAddress: guardianAddress,
-        email: dto.email || authCheck.email,
+        email: dto.email,
         phone: dto.phone,
         name: dto.name,
         isEmailVerified: true
@@ -72,8 +82,9 @@ export class GuardianController {
       return {
         success: true,
         guardianId: vcResult.guardianId,
+        authId: authCheck.authId,
         txHash: txResult.txHash,
-        message: 'Guardian registered',
+        message: 'Guardian registered successfully',
       };
     }
 
