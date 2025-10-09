@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package nose_embedder;
+
+// Service for dog nose embedding extraction
+service NoseEmbedderService {
+  // Extract feature vector from dog nose image
+  rpc ExtractNoseVector(NoseImageRequest) returns (NoseVectorResponse);
+
+  // Health check for gRPC connection
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Request message containing the dog nose image
+message NoseImageRequest {
+  // Image data in bytes (JPEG or PNG)
+  bytes image_data = 1;
+
+  // Optional: image format (e.g., "jpeg", "png")
+  string image_format = 2;
+}
+
+// Response message containing the extracted feature vector
+message NoseVectorResponse {
+  // Feature vector (embeddings)
+  repeated float vector = 1;
+
+  // Dimension of the vector
+  int32 vector_size = 2;
+
+  // Success status
+  bool success = 3;
+
+  // Error message if any
+  string error_message = 4;
+}
+
+// Health check request
+message HealthCheckRequest {
+  string service = 1;
+}
+
+// Health check response
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+    SERVICE_UNKNOWN = 3;
+  }
+
+  ServingStatus status = 1;
+  string message = 2;
+  string model_loaded = 3;
+  string timestamp = 4;
+}

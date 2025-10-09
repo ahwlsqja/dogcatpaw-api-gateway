@@ -11,6 +11,7 @@ const awsregion = 'AWS_REGION'
 const awss3bucketname = 'AWS_S3_BUCKET_NAME2'
 const emailuser = 'EMAIL_USER'
 const emailpassword = 'EMAIL_APP_PASSWORD'
+const endpoint = 'AWS_ENDPOINT'
 
 
 export const envVariableKeys = {
@@ -26,5 +27,6 @@ export const envVariableKeys = {
     awsregion,
     awss3bucketname,
     emailuser,
-    emailpassword
+    emailpassword,
+    endpoint
 }

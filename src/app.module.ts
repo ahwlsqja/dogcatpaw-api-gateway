@@ -13,6 +13,8 @@ import { PetModule } from './pet/pet.module';
 import { RedisModule } from './common/redis/redis.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ResponseTimeInterceptor } from './common/interceptor/response-time.interceptor';
+import { CommonModule } from './common/common.module';
+import { NoseEmbeddingModule } from './nose-embedding/nose-embedding.module';
 
 @Module({
   imports: [
@@ -35,7 +37,9 @@ import { ResponseTimeInterceptor } from './common/interceptor/response-time.inte
     VcModule,
     EmailModule,
     GuardianModule,
-    PetModule
+    PetModule,
+    CommonModule,
+    NoseEmbeddingModule,
   ],
   providers: [{
     provide: APP_INTERCEPTOR,
