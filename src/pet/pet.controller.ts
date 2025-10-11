@@ -1,11 +1,14 @@
 // api-gateway/src/pet/pet.controller.ts
-import { Controller, Get, Post, Body, Param, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Req, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
 import { PetService } from './pet.service';
 import { CreatePetDto } from './dto/create-pet.dto';
 import { DIDAuthGuard } from 'src/auth/guard/did-auth-guard';
 import { VcProxyService } from 'src/vc/vc.proxy.service';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { VcService } from 'src/vc/vc.service';
+import { NoseEmbedderProxyService } from 'src/nose-embedding/nose-embedding.proxy.service';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { ethers } from 'ethers';
 
 @ApiTags('Pet')
@@ -15,6 +18,8 @@ export class PetController {
   constructor(
     private readonly petService: PetService,
     private readonly vcProxyService: VcProxyService,
+    private readonly vcService: VcService,
+    private readonly noseEmbedderService: NoseEmbedderProxyService,
   ) {}
 
   /**
@@ -22,10 +27,13 @@ export class PetController {
    */
   @Post('register')
   @UseGuards(DIDAuthGuard)
-  @ApiOperation({ summary: 'PetDID 등록 - 보호자만 가능' })
+  @UseInterceptors(FileInterceptor('noseImage'))
+  @ApiOperation({ summary: 'PetDID 등록 - 보호자만 가능 (비문 이미지 필수)' })
+  @ApiConsumes('multipart/form-data')
   async registerPet(
     @Req() req: Request,
-    @Body() dto: CreatePetDto
+    @Body() dto: CreatePetDto,
+    @UploadedFile() noseImage?: Express.Multer.File
   ) {
     const guardianAddress = req.user?.address;
 
@@ -37,21 +45,61 @@ export class PetController {
     if (!guardianInfo) {
       return {
         success: false,
-        error: 'Guardian registration required. Please register as a guardian first.'
+        error: '가디언이 등록되지 않았습니다. 먼저 등록해주세요!'
       };
     }
 
-    // 2. PetDID 생성 (did:pet:ethereum:{chainId}:{petId})
-    const chainId = process.env.CHAIN_ID || '1337';
-    const petId = ethers.keccak256(
-      ethers.toUtf8Bytes(`${guardianAddress}-${dto.species}-${Date.now()}`)
-    ).substring(0, 42); // 20 bytes address format
-    const petDID = `did:pet:ethereum:${chainId}:${petId}`;
+    // 2. 비문 벡터 추출 (ML 서버 통해)
+    let featureVector: number[];
+    let featureVectorHash: string;
 
-    // 3. 비문 해시 생성 (실제로는 ML 서버에서 받아야 함)
-    const featureVectorHash = dto.biometricData
-      ? ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(dto.biometricData)))
-      : ethers.keccak256(ethers.toUtf8Bytes('dummy-biometric-data'));
+    if (noseImage) {
+      // 이미지 파일 유효성 검증
+      const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+      if (!allowedMimeTypes.includes(noseImage.mimetype)) {
+        throw new BadRequestException('Invalid file type. Only JPEG and PNG are allowed');
+      }
+
+      const maxSize = 10 * 1024 * 1024; // 10MB
+      if (noseImage.size > maxSize) {
+        throw new BadRequestException('File size exceeds 10MB limit');
+      }
+
+      try {
+        // ML 서버에 비문 벡터 추출 요청
+        const imageFormat = noseImage.mimetype.split('/')[1];
+        const mlResult = await this.noseEmbedderService.extractNoseVector(
+          noseImage.buffer,
+          imageFormat
+        );
+
+        if (!mlResult.success) {
+          throw new BadRequestException(mlResult.errorMessage || 'Failed to extract nose vector');
+        }
+
+        featureVector = mlResult.vector;
+        // 벡터를 해시로 변환
+        featureVectorHash = ethers.keccak256(
+          ethers.toUtf8Bytes(JSON.stringify(featureVector))
+        );
+      } catch (error) {
+        console.error('ML 서버 비문 추출 실패:', error);
+        throw new BadRequestException('비문 추출에 실패했습니다. 이미지를 확인해주세요.');
+      }
+    } else if (dto.biometricData) {
+      // Fallback: DTO에 직접 벡터가 제공된 경우
+      featureVector = dto.biometricData;
+      featureVectorHash = ethers.keccak256(
+        ethers.toUtf8Bytes(JSON.stringify(dto.biometricData))
+      );
+    } else {
+      throw new BadRequestException('비문 이미지 또는 biometricData가 필요합니다.');
+    }
+
+    // 3. PetDID 생성 (did:pet:ethereum:{chainId}:{petId})
+    const didMethod = process.env.DIDMETHOD || 'ethr';
+    const didNetwork = process.env.DIDNETWORK || 'besu';
+    const petDID = `did:${didMethod}:${didNetwork}:${featureVectorHash}`;
 
     // 4. 블록체인에 PetDID 등록
     const txResult = await this.petService.registerPetDID(
@@ -64,11 +112,30 @@ export class PetController {
       dto.signedTx
     );
 
-    // 5. 트랜잭션 성공 후 VC Service에 펫 메타데이터 저장
+    // 5. 트랜잭션 성공 후 VC 생성 준비
     if (txResult.success) {
       try {
-        // VC Service에 펫 정보 저장 (필요시 gRPC 메서드 추가)
-        // await this.vcProxyService.storePetMetadata({...});
+        // Pet 데이터 준비
+        const petData = {
+          name: dto.name,
+          species: dto.species,
+          age: dto.age,
+          gender: dto.gender,
+          breed: dto.breed,
+          color: dto.color,
+          weight: dto.weight,
+          microchipId: dto.microchipId,
+          registrationNumber: dto.registrationNumber,
+          metadata: dto.metadata,
+        };
+
+        // VC 서명 준비 데이터 생성
+        const vcSigningData = this.vcService.prepareVCSigning({
+          guardianAddress,
+          petDID,
+          biometricHash: featureVectorHash,
+          petData,
+        });
 
         return {
           success: true,
@@ -76,15 +143,23 @@ export class PetController {
           txHash: txResult.txHash,
           blockNumber: txResult.blockNumber,
           biometricHash: featureVectorHash,
-          message: 'Pet registered successfully'
+          vectorSize: featureVector.length,
+          message: 'Pet registered successfully',
+          vcSigning: {
+            ...vcSigningData,
+            nextStep: 'Sign the message and call POST /vc/create-vc-with-signature to create Pet VC',
+          },
         };
       } catch (error) {
-        console.error('Failed to store pet metadata:', error);
+        console.error('Failed to prepare VC signing:', error);
         return {
           success: true,
           petDID,
           txHash: txResult.txHash,
-          warning: 'Pet registered on blockchain but metadata storage pending'
+          blockNumber: txResult.blockNumber,
+          biometricHash: featureVectorHash,
+          vectorSize: featureVector.length,
+          warning: 'Pet registered on blockchain but VC preparation failed',
         };
       }
     }

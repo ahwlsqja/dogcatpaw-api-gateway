@@ -1,5 +1,4 @@
-// NestJS Controller Example - HTTP endpoints that forward to gRPC
-// Copy this to your NestJS project (e.g., src/nose-embedder/nose-embedder.controller.ts)
+// 비문 추출하는 컨트롤러
 
 import {
   Controller,
@@ -12,14 +11,14 @@ import {
   HttpException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { NoseEmbedderService } from './nose-embedding.service';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { NoseEmbedderProxyService } from './nose-embedding.proxy.service';
 
-@Controller('api/nose-embedder')
+@Controller('nose-embedder')
 @ApiBearerAuth()
 @ApiTags('Nose-Embedder')
 export class NoseEmbedderController {
-  constructor(private readonly noseEmbedderService: NoseEmbedderService) {}
+  constructor(private readonly noseEmbedderService: NoseEmbedderProxyService) {}
 
   /**
    * POST /api/nose-embedder/extract
@@ -30,7 +29,7 @@ export class NoseEmbedderController {
   async extractNoseVector(@UploadedFile() file: Express.Multer.File) {
     // Validate file
     if (!file) {
-      throw new BadRequestException('No photo file provided');
+      throw new BadRequestException('');
     }
 
     // Validate file type
@@ -50,6 +49,7 @@ export class NoseEmbedderController {
     try {
       // Extract image format
       const imageFormat = file.mimetype.split('/')[1];
+      console.log(file.buffer)
 
       // Call gRPC service
       const result = await this.noseEmbedderService.extractNoseVector(

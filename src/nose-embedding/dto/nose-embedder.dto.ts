@@ -2,8 +2,8 @@
 // Copy this to your NestJS project
 
 export interface NoseImageRequest {
-  imageData: Buffer;
-  imageFormat?: string;
+  image_data: Uint8Array | number[];
+  image_format?: string;
 }
 
 export interface NoseVectorResponse {

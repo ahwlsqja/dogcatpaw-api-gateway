@@ -20,7 +20,7 @@ export class DIDAuthGuard implements CanActivate {
     const isDevelopment = process.env.NODE_ENV !== 'production';
 
     if (isDevelopment) {
-      console.log('개발모드에서는 검증하지 않습니다!!');
+      console.log('dev mode validate not it');
       return true;
     }
 

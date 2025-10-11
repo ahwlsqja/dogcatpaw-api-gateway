@@ -1,47 +1,36 @@
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
+import { InjectQueue } from "@nestjs/bull";
 import { Inject, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { Queue } from "bull";
 import { Cache } from 'cache-manager';
-import * as nodemailer from 'nodemailer'
 import { envVariableKeys } from "src/common/const/env.const";
 import { RedisService } from "src/common/redis/redis.service";
+import { SendEmailJob } from "./email.processor";
 
 @Injectable()
 export class EmailService {
-  private transporter: nodemailer.Transporter;
-
   constructor(
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
     private readonly configService: ConfigService,
     private readonly redisService: RedisService,
-  ) {
-    this.transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: this.configService.get<string>(envVariableKeys.emailuser),
-        pass: this.configService.get<string>(envVariableKeys.emailpassword), // 앱 비밀번호
-      },
-    });
-  }
+    @InjectQueue('email') private emailQueue: Queue<SendEmailJob>,
+  ) {}
   async sendVerificationCode(walletAddress: string, email: string): Promise<any> {
-  // 1. 6자리 랜덤 코드 생성
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
-    
-  // 2. Redis에 저장 (10분)
-  const cacheKey = `email_verify:${walletAddress}`;
-  const data = {
-    code,
-    email,
-    attempts: 0,
-  };
-  await this.redisService.setex(cacheKey, 600, JSON.stringify(data)); // 600초 = 10분
+    // 1. 6자리 랜덤 코드 생성
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
 
-  // 3. 이메일 발송
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: email,
-    subject: '🐾 PetDID 이메일 인증',
-    html: `
+    // 2. Redis에 저장 (10분)
+    const cacheKey = `email_verify:${walletAddress}`;
+    const data = {
+      code,
+      email,
+      attempts: 0,
+    };
+    await this.redisService.setex(cacheKey, 600, JSON.stringify(data)); // 600초 = 10분
+
+    // 3. 이메일 발송 작업을 큐에 추가 (비동기)
+    const html = `
       <!DOCTYPE html>
       <html>
       <body style="font-family: Arial, sans-serif;">
@@ -59,22 +48,33 @@ export class EmailService {
         </div>
       </body>
       </html>
-    `,
-  };
+    `;
 
-  try {
-    await this.transporter.sendMail(mailOptions);
-    return {
-      success: true,
-      message: '이메일이 인증되었습니다!',
-    };
-  }catch (error) {
-    console.error('이메일 전송 에러:', error);
-    return {
-      success: false,
-      error: '이메일 전송에 실패했습니다!',
-    };
-  }
+    try {
+      // 큐에 작업 추가 (즉시 반환)
+      await this.emailQueue.add('send-verification', {
+        to: email,
+        subject: '🐾 PetDID 이메일 인증',
+        html,
+      }, {
+        attempts: 3, // 최대 3번 재시도
+        backoff: {
+          type: 'exponential',
+          delay: 2000, // 2초부터 시작
+        },
+      });
+
+      return {
+        success: true,
+        message: '인증 코드가 발송되었습니다!',
+      };
+    } catch (error) {
+      console.error('이메일 큐 추가 에러:', error);
+      return {
+        success: false,
+        error: '이메일 발송 요청에 실패했습니다!',
+      };
+    }
   }
 
   async verifyCode(walletAddress: string, code: string): Promise<any> {

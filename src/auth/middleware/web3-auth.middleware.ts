@@ -11,7 +11,7 @@ export class Web3AuthMiddleware implements NestMiddleware {
 
     if (isDevelopment) {
       // 개발용 테스트 지갑 주소
-      const testAddress = req.headers.walletaddress as string || '0x1234567890123456789012345678901234567890';
+      const testAddress = req.headers.walletaddress as string || '0xce2c8e1817c690121d4ce46f3889dd1b74338709';
       req.user = {
         address: testAddress.toLowerCase(),
         walletAddress: testAddress.toLowerCase(),

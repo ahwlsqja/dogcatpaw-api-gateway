@@ -14,7 +14,7 @@ import {
   VerifyEmailCodeResponseDto
 } from './dto/verify-email-code.dto';
 
-@Controller('api/email')
+@Controller('email')
 @ApiBearerAuth()
 @ApiTags('Email')
 export class EmailController {
