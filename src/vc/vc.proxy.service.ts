@@ -67,4 +67,11 @@ export class VcProxyService implements OnModuleInit {
   async healthCheck(data: HealthCheckRequestDto): Promise<HealthCheckResponseDto> {
     return firstValueFrom(this.vcService.HealthCheck(data));
   }
+
+  async invalidateVC(data: { petDID: string; guardianAddress: string; reason: string }) {
+    // TODO: Implement VC invalidation in VC service
+    // For now, just log the request
+    console.log(`Invalidating VC for ${data.petDID} owned by ${data.guardianAddress}: ${data.reason}`);
+    return { success: true };
+  }
 }

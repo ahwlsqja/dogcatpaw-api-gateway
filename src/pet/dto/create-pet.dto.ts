@@ -1,5 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsNumber, IsObject, Min, Max } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsObject, IsEnum, IsBoolean, Min, Max } from 'class-validator';
+import { Breed } from 'src/common/enums/breed.enum';
+import { Gender } from 'src/common/enums/gender.enum';
 
 export class CreatePetDto {
   @ApiProperty({
@@ -11,55 +13,72 @@ export class CreatePetDto {
   species: string;
 
   @ApiPropertyOptional({
-    description: '펫 이름',
+    description: '반려동물 이름',
     example: '뽀삐'
   })
   @IsOptional()
   @IsString()
-  name?: string;
+  petName?: string;
 
   @ApiPropertyOptional({
-    description: '펫 나이',
+    description: '반려동물 나이',
     example: 3
   })
   @IsOptional()
   @IsNumber()
   @Min(0)
   @Max(50)
-  age?: number;
+  old?: number;
 
   @ApiPropertyOptional({
-    description: '펫 성별',
-    example: 'male',
-    enum: ['male', 'female', 'unknown']
+    description: '반려동물 성별',
+    enum: Gender,
+    example: Gender.male
   })
   @IsOptional()
-  @IsString()
-  gender?: string;
+  @IsEnum(Gender, { message: '성별은 유효한 성별이어야 합니다.' })
+  gender?: Gender;
 
   @ApiPropertyOptional({
-    description: '펫 품종',
-    example: '골든 리트리버'
+    description: '반려동물 품종',
+    enum: Breed,
+    example: Breed.GOLDEN_RETRIEVER
   })
   @IsOptional()
-  @IsString()
-  breed?: string;
+  @IsEnum(Breed, { message: '품종은 유효한 품종이어야 합니다.' })
+  breed?: Breed;
 
   @ApiPropertyOptional({
-    description: '펫 색상',
-    example: 'golden'
+    description: '털 색',
+    example: '갈색'
   })
   @IsOptional()
   @IsString()
   color?: string;
 
   @ApiPropertyOptional({
-    description: '펫 무게 (kg)',
+    description: '반려동물 몸무게 (kg)',
     example: 25.5
   })
   @IsOptional()
   @IsNumber()
   weight?: number;
+
+  @ApiPropertyOptional({
+    description: '특성',
+    example: '활발함'
+  })
+  @IsOptional()
+  @IsString()
+  feature?: string;
+
+  @ApiPropertyOptional({
+    description: '중성화 여부',
+    example: true
+  })
+  @IsOptional()
+  @IsBoolean()
+  neutered?: boolean;
 
   @ApiPropertyOptional({
     description: '비문 데이터 (ML 서버에서 생성된 feature vector)',
@@ -88,22 +107,6 @@ export class CreatePetDto {
   @Min(1)
   @Max(255)
   sampleCount?: number;
-
-  @ApiPropertyOptional({
-    description: '마이크로칩 번호',
-    example: '900123456789012'
-  })
-  @IsOptional()
-  @IsString()
-  microchipId?: string;
-
-  @ApiPropertyOptional({
-    description: '등록 번호',
-    example: 'REG-2024-001'
-  })
-  @IsOptional()
-  @IsString()
-  registrationNumber?: string;
 
   @ApiPropertyOptional({
     description: '추가 메타데이터 (JSON)',

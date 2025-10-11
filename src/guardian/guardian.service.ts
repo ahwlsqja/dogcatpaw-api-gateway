@@ -5,6 +5,7 @@ import { ethers } from 'ethers';
 import { GuardianRegistryABI, getAddress } from '../abis';
 import { CreateGuardianDto } from './dto/create-guardian.dto';
 import { UpdateGuardianDto } from './dto/update-guardian.dto';
+import { envVariableKeys } from 'src/common/const/env.const';
 
 @Injectable()
 export class GuardianService {
@@ -15,17 +16,17 @@ export class GuardianService {
   constructor(private configService: ConfigService) {
     // RPC_URL 환경변수 사용
     this.provider = new ethers.JsonRpcProvider(
-      this.configService.get<string>('RPC_URL')
+      this.configService.get<string>(envVariableKeys.rpcurl)
     );
 
     // ADMIN_PRIVATE_KEY가 있을 경우에만 admin signer 설정
-    const adminPrivateKey = this.configService.get<string>('ADMIN_PRIVATE_KEY');
+    const adminPrivateKey = this.configService.get<string>(envVariableKeys.keyofadmin);
     if (adminPrivateKey) {
       this.adminSigner = new ethers.Wallet(adminPrivateKey, this.provider);
     }
 
     // ConfigService에서 컨트랙트 주소 가져오기
-    const guardianRegistryAddress = this.configService.get<string>('GUARDIAN_REGISTRY_ADDRESS');
+    const guardianRegistryAddress = this.configService.get<string>(envVariableKeys.guardianregistryaddress);
     if (!guardianRegistryAddress) {
       throw new Error('GUARDIAN_REGISTRY_ADDRESS is not configured in environment variables');
     }

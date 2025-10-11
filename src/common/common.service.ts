@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ObjectCannedACL, PutObjectCommand, S3 } from '@aws-sdk/client-s3'
+import { ObjectCannedACL, PutObjectCommand, S3, GetObjectCommand } from '@aws-sdk/client-s3'
 import {v4 as Uuid} from 'uuid';
 import { ConfigService } from '@nestjs/config';
 import { envVariableKeys } from './const/env.const';
@@ -27,7 +27,7 @@ export class CommonService {
         const params = {
             Bucket: this.configService.get<string>(envVariableKeys.awss3bucketname),
             Key: `temp/${Uuid()}.jpg`, // Unique file name,
-            ACL: ObjectCannedACL.public_read,     
+            ACL: ObjectCannedACL.public_read,
         };
 
         try {
@@ -38,5 +38,5 @@ export class CommonService {
             console.error('Error creating presigned URL:', error);
             throw error;
         }
-    }    
+    }
 };

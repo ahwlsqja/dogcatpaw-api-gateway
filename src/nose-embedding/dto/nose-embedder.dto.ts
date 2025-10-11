@@ -30,3 +30,17 @@ export interface HealthCheckResponse {
   modelLoaded: string;
   timestamp: string;
 }
+
+export interface CompareVectorsRequest {
+  vector1: number[];
+  vector2: number[];
+  petDID?: string;
+}
+
+export interface CompareVectorsResponse {
+  similarity: number;
+  success: boolean;
+  errorMessage?: string;
+  threshold?: number;
+  passed?: boolean;
+}

@@ -75,12 +75,10 @@ export class VcService {
       message,
     });
 
-    // gRPC로 VC Service에 저장 요청
     const result = await this.vcProxyService.storeVC({
       guardianAddress,
       petDID,
       vcJwt,
-      metadata: petData,
     });
 
     return result;
@@ -132,5 +130,86 @@ export class VcService {
       petDID,
       guardianAddress,
     });
+  }
+
+  /**
+   * 소유권 이전을 위한 서명 준비
+   */
+  prepareTransferVCSigning(params: {
+    previousGuardian: string;
+    newGuardian: string;
+    petDID: string;
+    biometricHash: string;
+    petData: any;
+  }) {
+    const { previousGuardian, newGuardian, petDID, biometricHash, petData } = params;
+
+    // 이전용 메시지 생성
+    const message = {
+      vcType: 'PetTransferCredential', // 타입 변경
+      sub: petDID,
+      guardian: newGuardian, // 새 보호자
+      previousGuardian, // 이전 보호자 추가
+      biometricHash,
+      petData,
+      transferDate: new Date().toISOString(),
+      issuedAt: new Date().toISOString(),
+      nonce: Math.random().toString(36).substring(2),
+    };
+
+    // 메시지 해시
+    const messageHash = ethers.keccak256(
+      ethers.toUtf8Bytes(JSON.stringify(message))
+    );
+
+    return {
+      message,
+      messageHash,
+      instruction: 'New guardian must sign to accept pet transfer',
+    };
+  }
+
+  /**
+   * 이전 VC 생성 (서명 검증 후)
+   */
+  async createTransferVC(params: {
+    newGuardian: string;
+    signature: string;
+    message: any;
+    petDID: string;
+    petData: any;
+  }) {
+    const { newGuardian, signature, message, petDID, petData } = params;
+
+    // 서명 검증
+    const messageHash = ethers.keccak256(
+      ethers.toUtf8Bytes(JSON.stringify(message))
+    );
+    const recoveredAddress = ethers.recoverAddress(messageHash, signature);
+
+    if (recoveredAddress.toLowerCase() !== newGuardian.toLowerCase()) {
+      return { success: false, error: 'Invalid signature' };
+    }
+
+    // VC JWT 조립 (새 보호자가 issuer)
+    const vcJwt = this.assembleVCJWT({
+      issuer: newGuardian,
+      signature,
+      petDID,
+      petData: {
+        ...petData,
+        previousGuardian: message.previousGuardian,
+        transferDate: message.transferDate,
+      },
+      message,
+    });
+
+    const result = await this.vcProxyService.storeVC({
+      guardianAddress: newGuardian,
+      petDID,
+      vcJwt,
+    });
+
+    return result;
   }
 }

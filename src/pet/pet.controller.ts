@@ -4,16 +4,18 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
 import { PetService } from './pet.service';
 import { CreatePetDto } from './dto/create-pet.dto';
+import { PrepareTransferDto, AcceptTransferDto, VerifyTransferResponseDto } from './dto/transfer-pet.dto';
 import { DIDAuthGuard } from 'src/auth/guard/did-auth-guard';
 import { VcProxyService } from 'src/vc/vc.proxy.service';
 import { VcService } from 'src/vc/vc.service';
 import { NoseEmbedderProxyService } from 'src/nose-embedding/nose-embedding.proxy.service';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes, ApiResponse } from '@nestjs/swagger';
 import { ethers } from 'ethers';
+import { PetDataDto } from 'src/vc/dto/pet-data.dto';
 
 @ApiTags('Pet')
 @ApiBearerAuth()
-@Controller('api/pet')
+@Controller('pet')
 export class PetController {
   constructor(
     private readonly petService: PetService,
@@ -21,6 +23,7 @@ export class PetController {
     private readonly vcService: VcService,
     private readonly noseEmbedderService: NoseEmbedderProxyService,
   ) {}
+
 
   /**
    * PetDID 등록 (보호자 인증 필요)
@@ -78,7 +81,8 @@ export class PetController {
         }
 
         featureVector = mlResult.vector;
-        // 벡터를 해시로 변환
+        // 벡터를 해시로 변환 (ONE-WAY: Cannot decode hash back to vector!)
+        // Hash is for blockchain integrity, actual vector must be stored elsewhere (VC)
         featureVectorHash = ethers.keccak256(
           ethers.toUtf8Bytes(JSON.stringify(featureVector))
         );
@@ -86,14 +90,8 @@ export class PetController {
         console.error('ML 서버 비문 추출 실패:', error);
         throw new BadRequestException('비문 추출에 실패했습니다. 이미지를 확인해주세요.');
       }
-    } else if (dto.biometricData) {
-      // Fallback: DTO에 직접 벡터가 제공된 경우
-      featureVector = dto.biometricData;
-      featureVectorHash = ethers.keccak256(
-        ethers.toUtf8Bytes(JSON.stringify(dto.biometricData))
-      );
     } else {
-      throw new BadRequestException('비문 이미지 또는 biometricData가 필요합니다.');
+      throw new BadRequestException('비문 이미지가 필요합니다.');
     }
 
     // 3. PetDID 생성 (did:pet:ethereum:{chainId}:{petId})
@@ -112,56 +110,17 @@ export class PetController {
       dto.signedTx
     );
 
-    // 5. 트랜잭션 성공 후 VC 생성 준비
+    // 5. 트랜잭션 성공 - Pet 등록 완료
     if (txResult.success) {
-      try {
-        // Pet 데이터 준비
-        const petData = {
-          name: dto.name,
-          species: dto.species,
-          age: dto.age,
-          gender: dto.gender,
-          breed: dto.breed,
-          color: dto.color,
-          weight: dto.weight,
-          microchipId: dto.microchipId,
-          registrationNumber: dto.registrationNumber,
-          metadata: dto.metadata,
-        };
-
-        // VC 서명 준비 데이터 생성
-        const vcSigningData = this.vcService.prepareVCSigning({
-          guardianAddress,
-          petDID,
-          biometricHash: featureVectorHash,
-          petData,
-        });
-
-        return {
-          success: true,
-          petDID,
-          txHash: txResult.txHash,
-          blockNumber: txResult.blockNumber,
-          biometricHash: featureVectorHash,
-          vectorSize: featureVector.length,
-          message: 'Pet registered successfully',
-          vcSigning: {
-            ...vcSigningData,
-            nextStep: 'Sign the message and call POST /vc/create-vc-with-signature to create Pet VC',
-          },
-        };
-      } catch (error) {
-        console.error('Failed to prepare VC signing:', error);
-        return {
-          success: true,
-          petDID,
-          txHash: txResult.txHash,
-          blockNumber: txResult.blockNumber,
-          biometricHash: featureVectorHash,
-          vectorSize: featureVector.length,
-          warning: 'Pet registered on blockchain but VC preparation failed',
-        };
-      }
+      return {
+        success: true,
+        petDID,
+        txHash: txResult.txHash,
+        blockNumber: txResult.blockNumber,
+        biometricHash: featureVectorHash,
+        vectorSize: featureVector.length,
+        message: 'Pet registered successfully. IMPORTANT: Save featureVector and pass it to POST /vc/prepare-vc-signing',
+      };
     }
 
     return txResult;
@@ -228,38 +187,267 @@ export class PetController {
   }
 
   /**
-   * Controller 변경 (펫 소유권 이전)
+   * 소유권 이전 Step 1: 서명 준비 (현재 보호자가 호출)
    */
-  @Post('transfer/:petDID')
+  @Post('prepare-transfer/:petDID')
   @UseGuards(DIDAuthGuard)
-  @ApiOperation({ summary: 'Controller 변경 (펫 소유권 이전)' })
-  async transferPet(
+  @ApiOperation({ summary: '펫 소유권 이전을 위한 서명 데이터 준비' })
+  async prepareTransfer(
     @Param('petDID') petDID: string,
     @Req() req: Request,
-    @Body() dto: { newController: string; signedTx?: string }
+    @Body() dto: { newGuardianAddress: string; petData: PetDataDto }
   ) {
-    const currentController = req.user?.address;
+    const currentGuardian = req.user?.address;
 
-    // 현재 Controller 확인
+    // 1. Pet DID 존재 여부 확인
     const didDoc = await this.petService.getDIDDocument(petDID);
-    if (didDoc.controller.toLowerCase() !== currentController.toLowerCase()) {
+    if (!didDoc.exists) {
       return {
         success: false,
-        error: 'Only current controller can transfer pet ownership'
+        error: '펫 DID가 존재하지 않습니다!',
       };
     }
 
-    const txResult = await this.petService.changeController(
+    // 2. 현재 Controller 확인
+    if (didDoc.controller.toLowerCase() !== currentGuardian.toLowerCase()) {
+      return {
+        success: false,
+        error: 'Only current controller can initiate transfer',
+      };
+    }
+
+    // 3. 비문 데이터 가져오기
+    const biometricData = await this.petService.getBiometricData(petDID);
+
+    // 5. 이전용 서명 데이터 생성 (새 보호자가 서명해야 함)
+    const transferSigningData = this.vcService.prepareTransferVCSigning({
+      previousGuardian: currentGuardian,
+      newGuardian: dto.newGuardianAddress,
       petDID,
-      dto.newController,
-      dto.signedTx
-    );
+      biometricHash: biometricData.featureVectorHash || '0x0',
+      petData: dto.petData,
+    });
 
     return {
       success: true,
-      ...txResult,
-      message: 'Pet ownership transferred'
+      ...transferSigningData,
+      nextStep: 'New guardian must sign and call POST /pet/accept-transfer/:petDID',
     };
+  }
+
+  /**
+   * 소유권 이전 Step 2: 비문 검증 (새 보호자가 비문 사진 업로드)
+   */
+  @Post('verify-transfer/:petDID')
+  @UseGuards(DIDAuthGuard)
+  @UseInterceptors(FileInterceptor('noseImage'))
+  @ApiOperation({ summary: '소유권 이전 시 새 보호자 비문 검증' })
+  @ApiConsumes('multipart/form-data')
+  async verifyTransfer(
+    @Param('petDID') petDID: string,
+    @Req() req: Request,
+    @UploadedFile() noseImage: Express.Multer.File
+  ): Promise<VerifyTransferResponseDto> {
+    const newGuardian = req.user?.address;
+
+    // 1. 파일 검증
+    if (!noseImage) {
+      throw new BadRequestException('비문 이미지가 필요합니다.');
+    }
+
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+    if (!allowedMimeTypes.includes(noseImage.mimetype)) {
+      throw new BadRequestException('Invalid file type. Only JPEG and PNG are allowed');
+    }
+
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (noseImage.size > maxSize) {
+      throw new BadRequestException('File size exceeds 10MB limit');
+    }
+
+    // 2. Pet의 기존 controller 가져오기
+    const didDoc = await this.petService.getDIDDocument(petDID);
+    if (!didDoc.exists) {
+      return {
+        success: false,
+        similarity: 0,
+        message: 'Pet DID not found',
+        error: 'Pet DID not found',
+      };
+    }
+
+    try {
+      const imageFormat = noseImage.mimetype.split('/')[1];
+      const mlResult = await this.noseEmbedderService.extractNoseVector(
+        noseImage.buffer,
+        imageFormat
+      );
+
+      if (!mlResult.success) {
+        throw new BadRequestException(mlResult.errorMessage || '추출 및 비교 실패');
+      }
+
+      // 6. 유사도 검증 (80% 이상)
+      const threshold = 80;
+      const similarityPercent = Math.round(compareResult.similarity * 100);
+
+      if (similarityPercent < threshold) {
+        return {
+          success: false,
+          similarity: similarityPercent,
+          message: '비문이 일치하지 않습니다. 소유권 이전을 진행할 수 없습니다.',
+          error: '비문이 일치하지 않습니다. 소유권 이전을 진행할 수 없습니다.',
+          threshold: threshold,
+        };
+      }
+
+      // 7. 검증 성공 - 증명 토큰 생성 (서명 가능하도록)
+      const verificationProof = {
+        petDID,
+        newGuardian,
+        similarity: similarityPercent,
+        verifiedAt: new Date().toISOString(),
+        nonce: Math.random().toString(36).substring(2),
+      };
+
+      const proofHash = ethers.keccak256(
+        ethers.toUtf8Bytes(JSON.stringify(verificationProof))
+      );
+
+      return {
+        success: true,
+        similarity: similarityPercent,
+        message: '비문 검증 성공! 이제 소유권 이전을 완료할 수 있습니다.',
+        verificationProof,
+        proofHash,
+        nextStep: 'Call POST /pet/accept-transfer/:petDID with signature and this proof',
+      };
+    } catch (error) {
+      console.error('ML 서버 비문 검증 실패:', error);
+      throw new BadRequestException('비문 검증에 실패했습니다.');
+    }
+  }
+
+  /**
+   * 소유권 이전 Step 3: 새 보호자 수락 (서명 + 비문 검증 증명과 함께)
+   */
+  @Post('accept-transfer/:petDID')
+  @UseGuards(DIDAuthGuard)
+  @ApiOperation({ summary: '펫 소유권 이전 수락 (새 보호자)' })
+  async acceptTransfer(
+    @Param('petDID') petDID: string,
+    @Req() req: Request,
+    @Body() dto: {
+      signature: string;
+      message: any;
+      petData: PetDataDto;
+      verificationProof: any; // 비문 검증 증명
+      signedTx?: string;
+    }
+  ) {
+    const newGuardian = req.user?.address;
+
+    // 1. 메시지의 새 보호자가 현재 사용자인지 확인
+    if (dto.message.guardian?.toLowerCase() !== newGuardian.toLowerCase()) {
+      return {
+        success: false,
+        error: 'Not the designated new guardian',
+      };
+    }
+
+    // 2. 비문 검증 증명 확인
+    if (!dto.verificationProof || dto.verificationProof.newGuardian !== newGuardian) {
+      return {
+        success: false,
+        error: 'Valid biometric verification proof required',
+      };
+    }
+
+    // 검증 시간 체크 (10분 이내)
+    const verifiedAt = new Date(dto.verificationProof.verifiedAt);
+    const now = new Date();
+    const diffMinutes = (now.getTime() - verifiedAt.getTime()) / 1000 / 60;
+    if (diffMinutes > 10) {
+      return {
+        success: false,
+        error: 'Verification proof expired. Please verify biometric again.',
+      };
+    }
+
+    // 3. 온체인 Controller 변경 (Critical - must succeed)
+    const txResult = await this.petService.changeController(
+      petDID,
+      newGuardian,
+      dto.signedTx
+    );
+
+    if (!txResult.success) {
+      return txResult;
+    }
+
+    // 4. VC 작업은 비동기로 처리 (성능 최적화 + eventual consistency)
+    // 블록체인 성공 후 즉시 응답, VC는 백그라운드에서 처리
+    this.processVCTransferAsync(
+      petDID,
+      newGuardian,
+      dto.message.previousGuardian,
+      dto.signature,
+      dto.message,
+      dto.petData
+    ).catch((error) => {
+      console.error('Async VC transfer failed:', error);
+    });
+
+    return {
+      success: true,
+      txHash: txResult.txHash,
+      blockNumber: txResult.blockNumber,
+      similarity: dto.verificationProof.similarity,
+      message: 'Pet ownership transferred successfully on blockchain. VC processing in background.',
+    };
+  }
+
+  /**
+   * 비동기 VC 처리 (성능 최적화)
+   */
+  private async processVCTransferAsync(
+    petDID: string,
+    newGuardian: string,
+    previousGuardian: string,
+    signature: string,
+    message: any,
+    petData: PetDataDto
+  ) {
+    // 1. 이전 보호자 VC 무효화
+    try {
+      await this.vcProxyService.invalidateVC({
+        petDID,
+        guardianAddress: previousGuardian,
+        reason: 'ownership_transfer',
+      });
+    } catch (error) {
+      console.error('Failed to invalidate previous VC:', error);
+      // 계속 진행 (새 VC 생성은 독립적)
+    }
+
+    // 2. 새 VC 생성
+    try {
+      // Feature vector should be in message (from prepare-transfer)
+      const featureVector = message.featureVector;
+
+      await this.vcService.createTransferVC({
+        newGuardian,
+        signature,
+        message,
+        petDID,
+        petData,
+        featureVector, // Preserve feature vector in new VC
+      });
+      console.log(`✅ Transfer VC created for ${petDID}`);
+    } catch (error) {
+      console.error('Failed to create transfer VC:', error);
+      // TODO: Retry logic or dead letter queue
+    }
   }
 
   /**

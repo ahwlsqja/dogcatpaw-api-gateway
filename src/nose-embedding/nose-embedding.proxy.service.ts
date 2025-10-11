@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
 import { ClientGrpc } from "@nestjs/microservices";
 import { firstValueFrom } from "rxjs";
-import { NoseVectorResponse, NoseImageRequest, HealthCheckResponse, HealthCheckRequest } from './dto/nose-embedder.dto'
+import { NoseVectorResponse, NoseImageRequest, HealthCheckResponse, HealthCheckRequest, CompareVectorsRequest, CompareVectorsResponse } from './dto/nose-embedder.dto'
 import { Inject } from "@nestjs/common";
 
 @Injectable()
@@ -50,5 +50,29 @@ export class NoseEmbedderProxyService implements OnModuleInit {
     return firstValueFrom(
         this.noseEmbedderService.healthCheck(request)
     )
+  }
+
+  /**
+   * Compare two nose vectors for similarity
+   * @param vector1 - First feature vector
+   * @param vector2 - Second feature vector
+   * @param petDID - Optional pet DID for logging
+   */
+  async compareVectors(
+    vector1: number[],
+    vector2: number[],
+    petDID?: string
+  ): Promise<CompareVectorsResponse> {
+    const request: CompareVectorsRequest = {
+      vector1,
+      vector2,
+      petDID,
+    };
+
+    console.log(`Comparing vectors for pet: ${petDID || 'unknown'}`);
+
+    return firstValueFrom(
+      this.noseEmbedderService.compareVectors(request)
+    );
   }
 }

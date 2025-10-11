@@ -22,7 +22,7 @@ export class VcController {
   @UseGuards(DIDAuthGuard)
   async prepareVCSigning(@Body() body: any, @Req() req: Request) {
     const guardianAddress = req.user.address;
-    const { petDID, biometricHash, petData } = body;
+    const { petDID, biometricHash, petData, featureVector } = body;
 
     return this.vcService.prepareVCSigning({
       guardianAddress,
@@ -39,7 +39,7 @@ export class VcController {
   @UseGuards(DIDAuthGuard)
   async createVCWithSignature(@Body() body: any, @Req() req: Request) {
     const guardianAddress = req.user.address;
-    const { signature, message, petDID, petData } = body;
+    const { signature, message, petDID, petData, featureVector } = body;
 
     return this.vcService.createVCWithSignature({
       guardianAddress,

@@ -12,6 +12,9 @@ const awss3bucketname = 'AWS_S3_BUCKET_NAME2'
 const emailuser = 'EMAIL_USER'
 const emailpassword = 'EMAIL_APP_PASSWORD'
 const endpoint = 'AWS_ENDPOINT'
+const rpcurl = 'RPC_URL'
+const keyofadmin = 'ADMIN_PRIVATE_KEY'
+const guardianregistryaddress = 'GUARDIAN_REGISTRY_ADDRESS'
 
 
 export const envVariableKeys = {
@@ -28,5 +31,8 @@ export const envVariableKeys = {
     awss3bucketname,
     emailuser,
     emailpassword,
-    endpoint
+    endpoint,
+    rpcurl,
+    keyofadmin,
+    guardianregistryaddress
 }
