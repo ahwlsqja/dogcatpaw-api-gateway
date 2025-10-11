@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ObjectCannedACL, PutObjectCommand, S3, GetObjectCommand } from '@aws-sdk/client-s3'
 import {v4 as Uuid} from 'uuid';
 import { ConfigService } from '@nestjs/config';
@@ -37,6 +37,95 @@ export class CommonService {
         } catch (error) {
             console.error('Error creating presigned URL:', error);
             throw error;
+        }
+    }
+
+    // 저장된 이미지를 nose-print-photo 폴더로 이동시키는 함수 
+    async saveNosePrintToPermanentStorage(fileName: string) {
+        try {
+            const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            await this.s3.copyObject({
+                Bucket: bucketName,
+                CopySource: `${bucketName}/temp/${fileName}`,
+                Key: `nose-print-photo/${fileName}`,
+                ACL: 'public-read',
+            });
+
+            await this.s3
+                .deleteObject({
+                    Bucket: bucketName,
+                    Key: `temp/${fileName}`,
+                });
+        } catch (e) {
+            console.log(e);
+            throw new InternalServerErrorException('S3 에러!');
+        }
+    }
+
+
+    // 저장된 보호자 프로필 사진을 guardian 폴더로 이동시키는 함수 
+    async saveGuardianToPermanentStorage(fileName: string) {
+        try {
+            const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            await this.s3.copyObject({
+                Bucket: bucketName,
+                CopySource: `${bucketName}/temp/${fileName}`,
+                Key: `guardian/${fileName}`,
+                ACL: 'public-read',
+            });
+
+            await this.s3
+                .deleteObject({
+                    Bucket: bucketName,
+                    Key: `temp/${fileName}`,
+                });
+        } catch (e) {
+            console.log(e);
+            throw new InternalServerErrorException('S3 에러!');
+        }
+    }
+
+    // 저장된 펫 프로필 사진을 pet 폴더로 이동시키는 함수 
+    async savePetToPermanentStorage(fileName: string) {
+        try {
+            const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            await this.s3.copyObject({
+                Bucket: bucketName,
+                CopySource: `${bucketName}/temp/${fileName}`,
+                Key: `pet/${fileName}`,
+                ACL: 'public-read',
+            });
+
+            await this.s3
+                .deleteObject({
+                    Bucket: bucketName,
+                    Key: `temp/${fileName}`,
+                });
+        } catch (e) {
+            console.log(e);
+            throw new InternalServerErrorException('S3 에러!');
+        }
+    }
+
+    // 저장된 입양일지 사진을 pet 폴더로 이동시키는 함수 
+    async saveDiaryToPermanentStorage(fileName: string) {
+        try {
+            const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            await this.s3.copyObject({
+                Bucket: bucketName,
+                CopySource: `${bucketName}/temp/${fileName}`,
+                Key: `diary/${fileName}`,
+                ACL: 'public-read',
+            });
+
+            await this.s3
+                .deleteObject({
+                    Bucket: bucketName,
+                    Key: `temp/${fileName}`,
+                });
+        } catch (e) {
+            console.log(e);
+            throw new InternalServerErrorException('S3 에러!');
         }
     }
 };
