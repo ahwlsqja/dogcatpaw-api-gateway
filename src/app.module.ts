@@ -9,6 +9,7 @@ import { Web3AuthMiddleware } from './auth/middleware/web3-auth.middleware';
 import { AuthModule } from './auth/auth.module';
 import { VcModule } from './vc/vc.module';
 import { EmailModule } from './email/email.module';
+import { BlockchainModule } from './blockchain/blockchain.module';
 import { GuardianModule } from './guardian/guardian.module';
 import { PetModule } from './pet/pet.module';
 import { RedisModule } from './common/redis/redis.module';
@@ -49,6 +50,7 @@ import { envVariableKeys } from './common/const/env.const';
     AuthModule,
     VcModule,
     EmailModule,
+    BlockchainModule,
     GuardianModule,
     PetModule,
     CommonModule,

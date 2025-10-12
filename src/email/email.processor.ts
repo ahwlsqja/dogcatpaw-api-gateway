@@ -43,7 +43,7 @@ export class EmailProcessor {
   @OnQueueFailed()
   onFailed(job: Job<SendEmailJob>, error: Error) {
     this.logger.error(
-      `❌ Job ${job.id} failed - Email to: ${job.data.to} | Attempt: ${job.attemptsMade}/${job.opts.attempts}`,
+      `Job ${job.id} failed - Email to: ${job.data.to} | Attempt: ${job.attemptsMade}/${job.opts.attempts}`,
       error.stack
     );
   }

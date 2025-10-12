@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
 import { ClientGrpc } from "@nestjs/microservices";
 import { firstValueFrom } from "rxjs";
-import { NoseVectorResponse, NoseImageRequest, HealthCheckResponse, HealthCheckRequest, CompareVectorsRequest, CompareVectorsResponse } from './dto/nose-embedder.dto'
+import { NoseVectorResponse, NoseImageRequest, HealthCheckResponse, HealthCheckRequest, CompareVectorsResponse, CompareWithStoredImageRequest } from './dto/nose-embedder.dto'
 import { Inject } from "@nestjs/common";
 
 @Injectable()
@@ -52,27 +52,23 @@ export class NoseEmbedderProxyService implements OnModuleInit {
     )
   }
 
+
   /**
-   * Compare two nose vectors for similarity
-   * @param vector1 - First feature vector
-   * @param vector2 - Second feature vector
-   * @param petDID - Optional pet DID for logging
-   */
-  async compareVectors(
-    vector1: number[],
-    vector2: number[],
-    petDID?: string
-  ): Promise<CompareVectorsResponse> {
-    const request: CompareVectorsRequest = {
-      vector1,
-      vector2,
-      petDID,
-    };
-
-    console.log(`Comparing vectors for pet: ${petDID || 'unknown'}`);
-
+  * Compare new image with stored vector
+  * @param imagekey - New image file buffer
+  * @param petDid - Pet DID to fetch stored vector from NCP
+  */
+  async compareWithStoredImage(
+    imageKey: string,
+    petDID: string,
+    ): Promise<CompareVectorsResponse> {
+    const request: CompareWithStoredImageRequest = {
+        image_key: imageKey,
+        pet_did: petDID,
+    };    
+    // Convert Observable to Promise
     return firstValueFrom(
-      this.noseEmbedderService.compareVectors(request)
+        this.noseEmbedderService.compareWithStoredImage(request),
     );
   }
 }

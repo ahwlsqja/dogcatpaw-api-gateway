@@ -12,6 +12,12 @@ import { NoseEmbedderProxyService } from 'src/nose-embedding/nose-embedding.prox
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes, ApiResponse } from '@nestjs/swagger';
 import { ethers } from 'ethers';
 import { PetDataDto } from 'src/vc/dto/pet-data.dto';
+import { TranferImageUrlDto } from './dto/transfer-noseprint-validate.dto';
+import { CommonService } from 'src/common/common.service';
+import { GuardianService } from 'src/guardian/guardian.service';
+import { BlockchainService } from 'src/blockchain/blockchain.service';
+import { ConfigService } from '@nestjs/config';
+import { error } from 'console';
 
 @ApiTags('Pet')
 @ApiBearerAuth()
@@ -22,6 +28,10 @@ export class PetController {
     private readonly vcProxyService: VcProxyService,
     private readonly vcService: VcService,
     private readonly noseEmbedderService: NoseEmbedderProxyService,
+    private readonly commonService: CommonService,
+    private readonly guardianService: GuardianService,
+    private readonly blockchainService: BlockchainService,
+    private readonly configService: ConfigService,
   ) {}
 
 
@@ -112,13 +122,30 @@ export class PetController {
 
     // 5. 트랜잭션 성공 - Pet 등록 완료
     if (txResult.success) {
+      // s3에 벡터 데이터 저장
+      let s3VectorUrl = null;
+      let s3VectorKey = null;
+
+      try{
+        const s3Result = await this.commonService.savePetFeatureVector(featureVector,petDID)
+        s3VectorUrl = s3Result.url;
+        s3VectorKey = s3Result.key
+        console.log(`feature vector saved to NCP Object Storage for ${petDID}: ${s3VectorKey}`)
+      } catch (error) {
+        console.log(`업로드에 실패했습니다!`)
+      }
+
+      // 5b. 펫을 가디언에 매핑 - Queue for async processing
+      const linkJobId = await this.blockchainService.queueGuardianLink(
+        guardianAddress,
+        petDID,
+        'link'
+      );
+      console.log(`📝 Queued guardian link - Job ID: ${linkJobId}`);
+
       return {
         success: true,
         petDID,
-        txHash: txResult.txHash,
-        blockNumber: txResult.blockNumber,
-        biometricHash: featureVectorHash,
-        vectorSize: featureVector.length,
         message: 'Pet registered successfully. IMPORTANT: Save featureVector and pass it to POST /vc/prepare-vc-signing',
       };
     }
@@ -240,30 +267,17 @@ export class PetController {
    */
   @Post('verify-transfer/:petDID')
   @UseGuards(DIDAuthGuard)
-  @UseInterceptors(FileInterceptor('noseImage'))
   @ApiOperation({ summary: '소유권 이전 시 새 보호자 비문 검증' })
-  @ApiConsumes('multipart/form-data')
   async verifyTransfer(
     @Param('petDID') petDID: string,
     @Req() req: Request,
-    @UploadedFile() noseImage: Express.Multer.File
+    @Body() imageDto: TranferImageUrlDto
   ): Promise<VerifyTransferResponseDto> {
+    // 주소
     const newGuardian = req.user?.address;
 
-    // 1. 파일 검증
-    if (!noseImage) {
-      throw new BadRequestException('비문 이미지가 필요합니다.');
-    }
-
-    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png'];
-    if (!allowedMimeTypes.includes(noseImage.mimetype)) {
-      throw new BadRequestException('Invalid file type. Only JPEG and PNG are allowed');
-    }
-
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (noseImage.size > maxSize) {
-      throw new BadRequestException('File size exceeds 10MB limit');
-    }
+    // 1. 이미지 이동
+    this.commonService.saveNosePrintToPermanentStorage(imageDto.image, petDID)
 
     // 2. Pet의 기존 controller 가져오기
     const didDoc = await this.petService.getDIDDocument(petDID);
@@ -276,11 +290,12 @@ export class PetController {
       };
     }
 
+    const imageKey = `nose-print-photo/${petDID}/${imageDto.image}`
+
     try {
-      const imageFormat = noseImage.mimetype.split('/')[1];
-      const mlResult = await this.noseEmbedderService.extractNoseVector(
-        noseImage.buffer,
-        imageFormat
+      const mlResult = await this.noseEmbedderService.compareWithStoredImage(
+        imageKey,
+        petDID,
       );
 
       if (!mlResult.success) {
@@ -289,7 +304,7 @@ export class PetController {
 
       // 6. 유사도 검증 (80% 이상)
       const threshold = 80;
-      const similarityPercent = Math.round(compareResult.similarity * 100);
+      const similarityPercent = Math.round(mlResult.similarity * 100);
 
       if (similarityPercent < threshold) {
         return {
@@ -301,7 +316,17 @@ export class PetController {
         };
       }
 
-      // 7. 검증 성공 - 증명 토큰 생성 (서명 가능하도록)
+      // 7. 블록체인에 검증 기록 - Queue for async processing (like email)
+      const blockchainJobId = await this.blockchainService.queueBiometricVerification(
+        petDID,
+        similarityPercent,
+        2, // purpose: 2 = ownership_transfer
+        newGuardian
+      );
+      console.log(`📝 Queued biometric verification for blockchain recording - Job ID: ${blockchainJobId}`);
+
+      // 8. 검증 성공 - 증명 토큰 생성 (로컬에서 검증함)
+      // TODO 나중에 컨트렉트 V3 업그레이드시 온체인로직으로 업그레이드 하는걸로
       const verificationProof = {
         petDID,
         newGuardian,
@@ -385,12 +410,21 @@ export class PetController {
       return txResult;
     }
 
-    // 4. VC 작업은 비동기로 처리 (성능 최적화 + eventual consistency)
+    // 4. Sync GuardianRegistry - Queue for async processing
+    const previousGuardian = dto.message.previousGuardian;
+    const transferSyncJobId = await this.blockchainService.queueTransferSync(
+      petDID,
+      previousGuardian,
+      newGuardian
+    );
+    console.log(`📝 Queued guardian transfer sync - Job ID: ${transferSyncJobId}`);
+
+    // 5. VC 작업은 비동기로 처리 (성능 최적화 + eventual consistency)
     // 블록체인 성공 후 즉시 응답, VC는 백그라운드에서 처리
     this.processVCTransferAsync(
       petDID,
       newGuardian,
-      dto.message.previousGuardian,
+      previousGuardian,
       dto.signature,
       dto.message,
       dto.petData
@@ -441,7 +475,6 @@ export class PetController {
         message,
         petDID,
         petData,
-        featureVector, // Preserve feature vector in new VC
       });
       console.log(`✅ Transfer VC created for ${petDID}`);
     } catch (error) {
@@ -505,6 +538,100 @@ export class PetController {
       success: true,
       petDID,
       isRegistered
+    };
+  }
+
+  /**
+   * 펫 소유권 이전 히스토리 조회
+   */
+  @Get('history/:petDID')
+  @ApiOperation({ summary: '펫 소유권 이전 히스토리 (입양 기록) 조회' })
+  async getPetControllerHistory(@Param('petDID') petDID: string) {
+    try {
+      const history = await this.petService.getPetControllerHistory(petDID);
+
+      return {
+        success: true,
+        ...history
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: 'Failed to fetch pet history',
+        message: error.message
+      };
+    }
+  }
+
+  /**
+   * 펫 비문 검증 히스토리 조회
+   */
+  @Get('verifications/:petDID')
+  @ApiOperation({ summary: '펫 비문 검증 히스토리 조회' })
+  async getVerificationHistory(@Param('petDID') petDID: string) {
+    try {
+      const verifications = await this.petService.getVerificationHistory(petDID);
+
+      return {
+        success: true,
+        petDID,
+        totalVerifications: verifications.length,
+        verifications
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: 'Failed to fetch verification history',
+        message: error.message
+      };
+    }
+  }
+
+  /**
+   * 특정 주소가 펫의 현재 보호자인지 확인
+   */
+  @Get('is-guardian/:petDID/:address')
+  @ApiOperation({ summary: '특정 주소가 펫의 현재 보호자인지 확인' })
+  async isAuthorizedGuardian(
+    @Param('petDID') petDID: string,
+    @Param('address') address: string
+  ) {
+    try {
+      const isAuthorized = await this.petService.isAuthorizedGuardian(petDID, address);
+
+      return {
+        success: true,
+        petDID,
+        address,
+        isAuthorizedGuardian: isAuthorized
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: 'Failed to check guardian authorization',
+        message: error.message
+      };
+    }
+  }
+
+  /**
+   * 블록체인 작업 상태 확인
+   */
+  @Get('blockchain-job/:jobId')
+  @ApiOperation({ summary: '블록체인 작업 상태 확인' })
+  async getBlockchainJobStatus(@Param('jobId') jobId: string) {
+    const status = await this.blockchainService.getJobStatus(jobId);
+
+    if (!status) {
+      return {
+        success: false,
+        error: 'Job not found'
+      };
+    }
+
+    return {
+      success: true,
+      job: status
     };
   }
 }

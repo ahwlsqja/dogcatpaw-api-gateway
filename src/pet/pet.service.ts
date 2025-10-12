@@ -166,6 +166,42 @@ export class PetService {
   }
 
   /**
+   * 비문 검증 with Admin Signature (개발용)
+   * Admin이 MODEL_SERVER_ROLE을 가지고 있다고 가정
+   */
+  async verifyBiometricWithAdminSignature(
+    petDID: string,
+    similarity: number,
+    purpose: number
+  ): Promise<boolean> {
+    if (!this.adminSigner) {
+      throw new Error('Admin signer not available');
+    }
+
+    // Create the message hash exactly as the contract expects
+    const messageHash = ethers.keccak256(
+      ethers.AbiCoder.defaultAbiCoder().encode(
+        ['string', 'uint8', 'uint8', 'uint256'],
+        [petDID, similarity, purpose, Math.floor(Date.now() / 1000)]
+      )
+    );
+
+    // Sign with admin key (admin should have MODEL_SERVER_ROLE)
+    const signature = await this.adminSigner.signMessage(ethers.getBytes(messageHash));
+
+    // Call the contract with admin signature
+    const contractWithSigner = this.petContract.connect(this.adminSigner);
+    const result = await contractWithSigner['verifyBiometric'](
+      petDID,
+      similarity,
+      purpose,
+      signature
+    );
+
+    return result;
+  }
+
+  /**
    * 트랜잭션 데이터 준비 - Controller 변경
    */
   async prepareChangeControllerTx(petDID: string, newController: string) {
@@ -328,5 +364,121 @@ export class PetService {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Get pet controller/ownership history from blockchain events
+   */
+  async getPetControllerHistory(petDID: string) {
+    // Get DIDCreated event to find initial owner
+    const createdFilter = this.petContract.filters.DIDCreated(petDID);
+    const createdEvents = await this.petContract.queryFilter(createdFilter);
+
+    // Get all ControllerChanged events for this pet
+    const changedFilter = this.petContract.filters.ControllerChanged(petDID);
+    const changedEvents = await this.petContract.queryFilter(changedFilter);
+
+    const history = [];
+
+    // Add initial registration
+    if (createdEvents.length > 0) {
+      const event = createdEvents[0];
+      const block = await event.getBlock();
+
+      // Parse the log to get args - handle both EventLog and Log types
+      let parsedLog: any;
+      if ('args' in event) {
+        parsedLog = event;
+      } else {
+        parsedLog = this.petContract.interface.parseLog({
+          topics: event.topics as string[],
+          data: event.data
+        });
+      }
+
+      history.push({
+        type: 'registered',
+        petDID,
+        controller: parsedLog.args.controller,
+        previousController: null,
+        txHash: event.transactionHash,
+        blockNumber: event.blockNumber,
+        timestamp: block.timestamp,
+        date: new Date(block.timestamp * 1000).toISOString()
+      });
+    }
+
+    // Add all ownership transfers
+    for (const event of changedEvents) {
+      const block = await event.getBlock();
+
+      // Parse the log to get args - handle both EventLog and Log types
+      let parsedLog: any;
+      if ('args' in event) {
+        parsedLog = event;
+      } else {
+        parsedLog = this.petContract.interface.parseLog({
+          topics: event.topics as string[],
+          data: event.data
+        });
+      }
+
+      history.push({
+        type: 'transferred',
+        petDID,
+        controller: parsedLog.args.newController,
+        previousController: parsedLog.args.oldController,
+        txHash: event.transactionHash,
+        blockNumber: event.blockNumber,
+        timestamp: block.timestamp,
+        date: new Date(block.timestamp * 1000).toISOString()
+      });
+    }
+
+    return {
+      petDID,
+      currentController: history.length > 0
+        ? history[history.length - 1].controller
+        : null,
+      totalTransfers: changedEvents.length,
+      history: history.sort((a, b) => a.timestamp - b.timestamp)
+    };
+  }
+
+  /**
+   * Get verification history for a pet
+   */
+  async getVerificationHistory(petDID: string) {
+    const result = await this.petContract['getVerificationHistory'](petDID);
+
+    return result.map((record: any) => ({
+      verifier: record.verifier,
+      timestamp: Number(record.timestamp),
+      date: new Date(Number(record.timestamp) * 1000).toISOString(),
+      similarity: Number(record.similarity),
+      purpose: Number(record.purpose),
+      purposeText: this.getPurposeText(Number(record.purpose))
+    }));
+  }
+
+  /**
+   * Check if address is authorized guardian for pet
+   */
+  async isAuthorizedGuardian(petDID: string, guardianAddress: string): Promise<boolean> {
+    return this.petContract['isAuthorizedGuardian'](petDID, guardianAddress);
+  }
+
+  /**
+   * Helper to convert purpose number to text
+   */
+  private getPurposeText(purpose: number): string {
+    const purposes: { [key: number]: string } = {
+      0: 'general_verification',
+      1: 'emergency_access',
+      2: 'ownership_transfer',
+      3: 'medical_record',
+      4: 'shelter_intake'
+    };
+    return purposes[purpose] || `unknown_${purpose}`;
   }
 }

@@ -110,28 +110,6 @@ export class GuardianController {
     };
   }
 
-  @Post('link-pet')
-  @UseGuards(DIDAuthGuard)
-  @ApiOperation({ summary: '펫 연결' })
-  async linkPet(
-    @Req() req: Request,
-    @Body() dto: { petDID: string; signedTx?: string }
-  ) {
-    const walletAddress = req.user?.address;
-    return this.guardianService.linkPet(walletAddress, dto.petDID, dto.signedTx);
-  }
-
-  @Post('unlink-pet')
-  @UseGuards(DIDAuthGuard)
-  @ApiOperation({ summary: '펫 연결 해제' })
-  async unlinkPet(
-    @Req() req: Request,
-    @Body() dto: { petDID: string; signedTx?: string }
-  ) {
-    const walletAddress = req.user?.address;
-    return this.guardianService.unlinkPet(walletAddress, dto.petDID, dto.signedTx);
-  }
-
   @Get('profile/:address')
   @ApiOperation({ summary: '보호자 프로필 조회' })
   async getProfile(@Param('address') guardianAddress: string) {
