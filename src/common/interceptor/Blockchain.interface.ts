@@ -16,3 +16,12 @@ export interface ControllerTransferJob {
   previousGuardian: string;
   newGuardian: string;
 }
+
+export interface VCTransferJob {
+  petDID: string;
+  newGuardian: string;
+  previousGuardian: string;
+  signature: string;
+  message: any;
+  petData: any;
+}

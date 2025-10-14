@@ -1,0 +1,743 @@
+================================================================================
+GET /api/adoption/
+================================================================================
+Tags: ['입양 관련 API']
+Summary: 입양 공고 조회 (cursor 기반)
+Description: 입양 공고를 cursor로 조회하는 API 입니다. "cursor와 size에 아무 값도 입력하지 않아도 되며, 기본 사이즈는 9입니다. 다음 조회는 nextCursor을 사용하세요.
+Operation ID: getRegistration
+
+Parameters:
+  - cursor (query) [integer] Required: False
+  - size (query) [integer] Required: False
+  - status (query) [string] Required: False
+  - breed (query) [string] Required: False
+  - region (query) [string] Required: False
+  - district (query) [string] Required: False
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponsePreviewListDto"
+}
+
+================================================================================
+GET /api/adoption/detail
+================================================================================
+Tags: ['입양 관련 API']
+Summary: 입양 공고 상세 페이지 조회
+Description: 입양 공고의 상세 페이지를 조회하는 API 입니다.
+Operation ID: getDetail
+
+Parameters:
+  - adoptId (query) [integer] Required: True
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseDetailDto"
+}
+
+================================================================================
+GET /api/adoption/home
+================================================================================
+Tags: ['입양 관련 API']
+Summary: 홈 화면 조회
+Description: 입양 공고, 후원글, 일상 일지, 입양 후기 3개씩 조회하는 API 입니다.
+Operation ID: home
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseHomeDto"
+}
+
+================================================================================
+POST /api/adoption/post
+================================================================================
+Tags: ['입양 관련 API']
+Summary: 입양 공고 작성
+Description: 입양 공고를 작성하는 API 입니다. 펫 등록이 먼저 필요합니다.
+Operation ID: register_1
+
+Request Body:
+  Required: True
+  Content-Type: application/json
+  Schema: {
+    "ref": "RegisterDto"
+}
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseRegisterDto"
+}
+
+================================================================================
+POST /api/auth/login
+================================================================================
+Tags: ['멍냥일지 Swagger API']
+Summary: 로그인
+Description: 로그인합니다.
+Operation ID: login
+
+Request Body:
+  Required: True
+  Content-Type: application/json
+  Schema: {
+    "ref": "LoginRequestDTO"
+}
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseLoginResponseDTO"
+}
+
+================================================================================
+POST /api/auth/logout
+================================================================================
+Tags: ['멍냥일지 Swagger API']
+Summary: 로그아웃
+Description: 로그아웃합니다.
+Operation ID: logout
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseObject"
+}
+
+================================================================================
+POST /api/auth/reissue
+================================================================================
+Tags: ['멍냥일지 Swagger API']
+Summary: 리이슈
+Description: 액세스 토큰을 재발행합니다. id와 refresh 필요
+Operation ID: reissue
+
+Request Body:
+  Required: True
+  Content-Type: application/json
+  Schema: {
+    "ref": "ReissueRequestDTO"
+}
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseReissueResponseDTO"
+}
+
+================================================================================
+POST /api/auth/signup
+================================================================================
+Tags: ['멍냥일지 Swagger API']
+Summary: 회원가입
+Description: 회원가입합니다.
+Operation ID: signup
+
+Request Body:
+  Required: True
+  Content-Type: application/json
+  Schema: {
+    "ref": "SignupRequestDTO"
+}
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseSignupResponseDTO"
+}
+
+================================================================================
+GET /api/chat/room/card
+================================================================================
+Tags: ['채팅 관련 API']
+Summary: 채팅방 카드 단일 조회
+Description: 채팅방 카드 단일 조회하기 
+Operation ID: getRoomCard
+
+Parameters:
+  - roomId (query) [integer] Required: True
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseChatRoomCardDTO"
+}
+
+================================================================================
+POST /api/chat/room/create
+================================================================================
+Tags: ['채팅 관련 API']
+Summary: 채팅방 생성하기
+Description: adoptWriterId에 입양공고를 작성한 사람을 넣어주고, 입양 공고 번호를 넣어주세요.방 이름 설정이 가능하니 일단은 입양 공고 이름으로 방 생성하세요.
+Operation ID: createRoom
+
+Request Body:
+  Required: True
+  Content-Type: application/json
+  Schema: {
+    "ref": "ChatRoomCreateDTO"
+}
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseChatRoomCreatedDTO"
+}
+
+================================================================================
+GET /api/chat/room/list
+================================================================================
+Tags: ['채팅 관련 API']
+Summary: 채팅방 목록 조회
+Description: 채팅방 전체 목록 조회하기 
+Operation ID: getRoomCardList
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseListChatRoomCardDTO"
+}
+
+================================================================================
+GET /api/chat/room/{roomId}/adoption
+================================================================================
+Tags: ['채팅 관련 API']
+Summary: 채팅방 상단 입양 공고 조회
+Description: 해당되는 입양 공고를 채팅방 상단에 띄우는 API입니다.
+Operation ID: getAdoptInfoForChat
+
+Parameters:
+  - roomId (path) [integer] Required: True
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponsePreviewDto"
+}
+
+================================================================================
+POST /api/chat/{roomId}/enter
+================================================================================
+Tags: ['채팅 관련 API']
+Summary: 채팅방 입장 및 메시지 조회하기
+Description: 채팅방 입장 및 메세지 조회하기
+Operation ID: enterRoom
+
+Parameters:
+  - roomId (path) [integer] Required: True
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseListChatMessageResDTO"
+}
+
+================================================================================
+GET /api/comment/
+================================================================================
+Tags: ['일지 좋아요, 댓글 관련 API']
+Summary: 댓글 조회
+Description: 작성된 댓글을 조회합니다.
+Operation ID: getComment
+
+Parameters:
+  - storyId (query) [integer] Required: True
+  - cursor (query) [integer] Required: False
+  - size (query) [integer] Required: False
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseGetCommentListDTO"
+}
+
+================================================================================
+POST /api/comment/
+================================================================================
+Tags: ['일지 좋아요, 댓글 관련 API']
+Summary: 댓글 작성
+Description: 댓글 작성합니다.
+Operation ID: write
+
+Request Body:
+  Required: True
+  Content-Type: application/json
+  Schema: {
+    "ref": "CommentReqDTO"
+}
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseWriteDTO"
+}
+
+================================================================================
+GET /api/donation/
+================================================================================
+Tags: ['후원 관련 API']
+Summary: 후원 공고 글 상세 보기 + 후원 내역 조회
+Description: 후원 공고글을 상세 보기하는 API 입니다.후원 내역은 기본적으로 5개를 반환하며, 조정이 가능합니다.
+Operation ID: getDonation
+
+Parameters:
+  - donationId (query) [integer] Required: True
+  - cursor (query) [integer] Required: False
+  - size (query) [integer] Required: False
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseDetailDto"
+}
+
+================================================================================
+GET /api/donation/closing
+================================================================================
+Tags: ['후원 관련 API']
+Summary: 상단 - 마감 임박 후원 3개
+Description: 마감 기한이 임박한 후원 3개를 조회하는 API 입니다. 후원페이지 상단에 띄워주세요. 
+Operation ID: getClosingSoonDonations
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseListPreviewDto"
+}
+
+================================================================================
+GET /api/donation/list
+================================================================================
+Tags: ['후원 관련 API']
+Summary: 하단 - 전체 후원 리스트 (cursor 기반)
+Description: 후원글을 cursor로 조회하는 API 입니다.status 파라미터는 ACTIVE, ACHIEVED, CLOSED처럼 대문자로 보내주세요.cursor와 size에 아무 값도 입력하지 않아도 되며, 기본 사이즈는 9입니다. 다음 조회는 nextCursor을 사용하세요.
+Operation ID: getDonationList_1
+
+Parameters:
+  - cursor (query) [integer] Required: False
+  - size (query) [integer] Required: False
+  - breed (query) [string] Required: False
+  - status (query) [string] Required: False
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponsePreviewListDto"
+}
+
+================================================================================
+POST /api/donation/posts
+================================================================================
+Tags: ['후원 관련 API']
+Summary: 후원 공고 글 작성하기
+Description: 후원 공고글을 작성하는 API 입니다.
+Operation ID: create_2
+
+Request Body:
+  Required: True
+  Content-Type: application/json
+  Schema: {
+    "ref": "CreateDto"
+}
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseCreateDto"
+}
+
+================================================================================
+POST /api/donations
+================================================================================
+Tags: ['후원 관련 API']
+Summary: 후원하기
+Description: 선택한 뼈다귀 금액만큼 후원하는 API 입니다.
+Operation ID: donate
+
+Request Body:
+  Required: True
+  Content-Type: application/json
+  Schema: {
+    "ref": "DonateDto"
+}
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseDonateDto"
+}
+
+================================================================================
+GET /api/donations/bone
+================================================================================
+Tags: ['후원 관련 API']
+Summary: 현재 후원 가능한 뼈다귀 조회
+Description: 내 뼈다귀 잔여량을 조회하는 API 입니다.
+Operation ID: getMyBoneBalance
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseMyBoneBalanceDto"
+}
+
+================================================================================
+GET /api/donations/lists
+================================================================================
+Tags: ['후원 관련 API']
+Summary: 후원한 사람들의 후원 내역 목록 조회하기(x)
+Description: 후원 공고 내 후원 목록을 조회하는 API 입니다.목록만 조회 가능하고, 후원 상세 페이지와 내역 목록 한번에 반환은 /api/donation/에서 가능합니다.
+Operation ID: getDonationList
+
+Parameters:
+  - donationId (query) [integer] Required: True
+  - cursor (query) [integer] Required: False
+  - size (query) [integer] Required: False
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseDonationListDto"
+}
+
+================================================================================
+GET /api/donations/mine
+================================================================================
+Tags: ['후원 관련 API']
+Summary: 내가 후원한 내역 조회하기(마이페이지)
+Description: 내 후원 내역을 조회하는 API 입니다.
+Operation ID: getMyDonationList
+
+Parameters:
+  - cursor (query) [integer] Required: False
+  - size (query) [integer] Required: False
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseMyDonationListDto"
+}
+
+================================================================================
+POST /api/like/
+================================================================================
+Tags: ['일지 좋아요, 댓글 관련 API']
+Summary: 좋아요 누름
+Description: 좋아요 누릅니다. 이미 있으면 취소, 없으면 좋아요 생성
+Operation ID: createLike
+
+Parameters:
+  - storyId (query) [integer] Required: True
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseLikeResDTO"
+}
+
+================================================================================
+POST /api/payment/approve
+================================================================================
+Tags: ['후원 관련 API']
+Summary: 뼈다귀 토스 결제
+Description: 뼈다귀 구매를 위해 토스로 요청하는 API 입니다.
+Operation ID: confirm
+
+Request Body:
+  Required: True
+  Content-Type: application/json
+  Schema: {
+    "ref": "ApproveDTO"
+}
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseApproveDTO"
+}
+
+================================================================================
+POST /api/payment/prepare
+================================================================================
+Tags: ['후원 관련 API']
+Summary: 뼈다귀 결제 준비
+Description: 뼈다귀를 구매하기 위해 orderId, amount를 미리 등록하는 API 입니다.
+Operation ID: request
+
+Request Body:
+  Required: True
+  Content-Type: application/json
+  Schema: {
+    "ref": "PrepareDTO"
+}
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponsePrepareDTO"
+}
+
+================================================================================
+GET /api/pet
+================================================================================
+Tags: ['반려동물 API']
+Summary: 내 반려동물 조회
+Description: 내 반려동물 조회하는 API 입니다. 마이페이지와 입양 공고 등록 시 사용하세요.
+Operation ID: getMyPetList
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseListMyPetListDto"
+}
+
+================================================================================
+POST /api/pet
+================================================================================
+Tags: ['반려동물 API']
+Summary: 반려동물 등록
+Description: 사용자별 반려동물 등록하는 API 입니다.
+Operation ID: register
+
+Request Body:
+  Required: True
+  Content-Type: application/json
+  Schema: {
+    "ref": "registerPetReqDTO"
+}
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseRegisterPetResDto"
+}
+
+================================================================================
+POST /api/story/daily
+================================================================================
+Tags: ['일상 일지 API']
+Summary: 일상 일지 작성
+Description: 일지 하나를 작성합니다.
+Operation ID: create_1
+
+Request Body:
+  Required: False
+  Content-Type: multipart/form-data
+  Schema: {
+    "type": "object",
+    "properties": {
+        "story": {
+            "ref": "story"
+        },
+        "image": {
+            "type": "string",
+            "description": ""
+        }
+    }
+}
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseWriteStoryResDto"
+}
+
+================================================================================
+GET /api/story/daily/search
+================================================================================
+Tags: ['일상 일지 API']
+Summary: 일상 일지 검색하기
+Description: 로그인 없이 일상 일지를 검색합니다.
+Operation ID: search_1
+
+Parameters:
+  - keyword (query) [string] Required: True
+  - cursorId (query) [integer] Required: False
+  - size (query) [integer] Required: False
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseStoriesListDto"
+}
+
+================================================================================
+GET /api/story/daily/stories
+================================================================================
+Tags: ['일상 일지 API']
+Summary: 메인 일상 일지 목록 조회
+Description: 일지 메인 화면의 일지 목록을 조회합니다.
+Operation ID: getStories
+
+Parameters:
+  - cursorId (query) [integer] Required: False
+  - size (query) [integer] Required: False
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseStoriesListDto"
+}
+
+================================================================================
+GET /api/story/daily/{stories}
+================================================================================
+Tags: ['일상 일지 API']
+Summary: 일상 일지 하나 조회
+Description: 일지 하나를 조회합니다.
+Operation ID: getStory
+
+Parameters:
+  - stories (path) [integer] Required: True
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseStoryDetailDto"
+}
+
+================================================================================
+POST /api/story/review
+================================================================================
+Tags: ['입양 후기 일지 API']
+Summary: 입양 후기 일지 작성
+Description: 일지 하나를 작성합니다.
+Operation ID: create
+
+Request Body:
+  Required: False
+  Content-Type: multipart/form-data
+  Schema: {
+    "type": "object",
+    "properties": {
+        "story": {
+            "ref": "review"
+        },
+        "image": {
+            "type": "string",
+            "description": ""
+        }
+    }
+}
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseWriteReviewResDto"
+}
+
+================================================================================
+GET /api/story/review/reviews
+================================================================================
+Tags: ['입양 후기 일지 API']
+Summary: 메인 입양 후기 목록 조회
+Description: 입양 후기 일지 메인 화면의 목록을 조회합니다.
+Operation ID: getReviews
+
+Parameters:
+  - cursorId (query) [integer] Required: False
+  - size (query) [integer] Required: False
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseReviewListDto"
+}
+
+================================================================================
+GET /api/story/review/search
+================================================================================
+Tags: ['입양 후기 일지 API']
+Summary: 입양 후기 검색하기
+Description: 로그인 없이 입양 후기를 검색합니다.
+Operation ID: search
+
+Parameters:
+  - keyword (query) [string] Required: True
+  - cursorId (query) [integer] Required: False
+  - size (query) [integer] Required: False
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseReviewListDto"
+}
+
+================================================================================
+GET /api/story/review/{reviews}
+================================================================================
+Tags: ['입양 후기 일지 API']
+Summary: 입양 후기 상세 조회
+Description: 입양 후기 한 개의 상세 내용을 조회합니다.
+Operation ID: getReview
+
+Parameters:
+  - reviews (path) [integer] Required: True
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseReviewDetailDto"
+}
+
+================================================================================
+POST /api/vc/sync
+================================================================================
+Tags: ['VC 관련 API']
+Summary: VCJWT
+Description: 인증된 사용자의 vcJwt를 받는 API 입니다.
+Operation ID: sync
+
+Request Body:
+  Required: True
+  Content-Type: application/json
+  Schema: {
+    "ref": "PetVcSyncReqDTO"
+}
+
+Responses:
+  200: OK
+    Content-Type: */*
+    Schema: {
+      "ref": "CustomResponseListPetVcDTO"
+}
+

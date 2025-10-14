@@ -10,6 +10,7 @@ import { AuthModule } from './auth/auth.module';
 import { VcModule } from './vc/vc.module';
 import { EmailModule } from './email/email.module';
 import { BlockchainModule } from './blockchain/blockchain.module';
+import { SpringModule } from './spring/spring.module';
 import { GuardianModule } from './guardian/guardian.module';
 import { PetModule } from './pet/pet.module';
 import { RedisModule } from './common/redis/redis.module';
@@ -18,6 +19,8 @@ import { ResponseTimeInterceptor } from './common/interceptor/response-time.inte
 import { CommonModule } from './common/common.module';
 import { NoseEmbedderModule } from './nose-embedding/nose-embedding.module';
 import { envVariableKeys } from './common/const/env.const';
+import { AdminModule } from './admin/admin.module';
+import { IndexerModule } from './indexer/indexer.module';
 
 @Module({
   imports: [
@@ -51,10 +54,13 @@ import { envVariableKeys } from './common/const/env.const';
     VcModule,
     EmailModule,
     BlockchainModule,
+    SpringModule,
     GuardianModule,
     PetModule,
     CommonModule,
     NoseEmbedderModule,
+    AdminModule,
+    IndexerModule,
   ],
   providers: [{
     provide: APP_INTERCEPTOR,

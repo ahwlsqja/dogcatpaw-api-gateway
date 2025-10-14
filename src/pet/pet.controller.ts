@@ -5,9 +5,10 @@ import { Request } from 'express';
 import { PetService } from './pet.service';
 import { CreatePetDto } from './dto/create-pet.dto';
 import { PrepareTransferDto, AcceptTransferDto, VerifyTransferResponseDto } from './dto/transfer-pet.dto';
-import { DIDAuthGuard } from 'src/auth/guard/did-auth-guard';
+import { DIDAuthGuard, IS_PUBLIC_KEY } from 'src/auth/guard/did-auth-guard';
 import { VcProxyService } from 'src/vc/vc.proxy.service';
 import { VcService } from 'src/vc/vc.service';
+import { VcQueueService } from 'src/vc/vc-queue.service';
 import { NoseEmbedderProxyService } from 'src/nose-embedding/nose-embedding.proxy.service';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes, ApiResponse } from '@nestjs/swagger';
 import { ethers } from 'ethers';
@@ -17,7 +18,9 @@ import { CommonService } from 'src/common/common.service';
 import { GuardianService } from 'src/guardian/guardian.service';
 import { BlockchainService } from 'src/blockchain/blockchain.service';
 import { ConfigService } from '@nestjs/config';
-import { error } from 'console';
+import { SpringService } from 'src/spring/spring.service';
+import { Public } from '../auth/decorator/public.decorator';
+import { IndexerProxyService } from 'src/indexer/indexer.proxy.service';
 
 @ApiTags('Pet')
 @ApiBearerAuth()
@@ -27,11 +30,14 @@ export class PetController {
     private readonly petService: PetService,
     private readonly vcProxyService: VcProxyService,
     private readonly vcService: VcService,
+    private readonly vcQueueService: VcQueueService,
     private readonly noseEmbedderService: NoseEmbedderProxyService,
     private readonly commonService: CommonService,
     private readonly guardianService: GuardianService,
     private readonly blockchainService: BlockchainService,
     private readonly configService: ConfigService,
+    private readonly springService: SpringService,
+    private readonly indexerProxyService: IndexerProxyService,
   ) {}
 
 
@@ -143,74 +149,35 @@ export class PetController {
       );
       console.log(`📝 Queued guardian link - Job ID: ${linkJobId}`);
 
+      // 5c. Queue pet registration to Spring server (async)
+      const petData = {
+        petName: dto.petName,
+        breed: dto.breed?.toString(), // Convert Enum to string
+        old: dto.old,
+        weight: dto.weight,
+        gender: dto.gender?.toString(), // Convert Enum to string
+        color: dto.color,
+        feature: dto.feature,
+        neutered: dto.neutered,
+        species: dto.species,
+      };
+
+      const springJobId = await this.springService.queuePetRegistration(
+        guardianAddress,
+        petDID,
+        petData
+      );
+      console.log(`Queued Spring pet registration - Job ID: ${springJobId}`);
+
       return {
         success: true,
         petDID,
         message: 'Pet registered successfully. IMPORTANT: Save featureVector and pass it to POST /vc/prepare-vc-signing',
+        springJobId,
       };
     }
 
     return txResult;
-  }
-
-  /**
-   * 펫 정보 조회
-   */
-  @Get(':petDID')
-  @ApiOperation({ summary: '펫 정보 조회 (DID Document + Biometric Data)' })
-  async getPetInfo(@Param('petDID') petDID: string) {
-    const [didDoc, biometricData] = await Promise.all([
-      this.petService.getDIDDocument(petDID),
-      this.petService.getBiometricData(petDID),
-    ]);
-
-    if (!didDoc.exists) {
-      return {
-        success: false,
-        error: 'Pet DID not found'
-      };
-    }
-
-    return {
-      success: true,
-      petDID,
-      ...didDoc,
-      biometric: biometricData,
-    };
-  }
-
-  /**
-   * 보호자별 펫 목록 조회
-   */
-  @Get('by-controller/:address')
-  @ApiOperation({ summary: '보호자별 펫 목록 조회' })
-  async getPetsByController(@Param('address') address: string) {
-    const pets = await this.petService.getPetsByController(address);
-
-    return {
-      success: true,
-      controller: address,
-      pets,
-      totalPets: pets.length
-    };
-  }
-
-  /**
-   * 내 펫 목록 조회
-   */
-  @Get('my/pets')
-  @UseGuards(DIDAuthGuard)
-  @ApiOperation({ summary: '내 펫 목록 조회' })
-  async getMyPets(@Req() req: Request) {
-    const guardianAddress = req.user?.address;
-    const pets = await this.petService.getPetsByController(guardianAddress);
-
-    return {
-      success: true,
-      guardian: guardianAddress,
-      pets,
-      totalPets: pets.length
-    };
   }
 
   /**
@@ -417,70 +384,28 @@ export class PetController {
       previousGuardian,
       newGuardian
     );
-    console.log(`📝 Queued guardian transfer sync - Job ID: ${transferSyncJobId}`);
+    console.log(`Queued guardian transfer sync - Job ID: ${transferSyncJobId}`);
 
-    // 5. VC 작업은 비동기로 처리 (성능 최적화 + eventual consistency)
-    // 블록체인 성공 후 즉시 응답, VC는 백그라운드에서 처리
-    this.processVCTransferAsync(
+    // 5. Queue VC transfer processing (invalidate old VC + create new VC)
+    // 블록체인 성공 후 즉시 응답, VC는 백그라운드에서 BullMQ로 처리
+    const vcTransferJobId = await this.vcQueueService.queueVCTransfer(
       petDID,
       newGuardian,
       previousGuardian,
       dto.signature,
       dto.message,
       dto.petData
-    ).catch((error) => {
-      console.error('Async VC transfer failed:', error);
-    });
+    );
+    console.log(`📝 Queued VC transfer job - Job ID: ${vcTransferJobId}`);
 
     return {
       success: true,
       txHash: txResult.txHash,
       blockNumber: txResult.blockNumber,
       similarity: dto.verificationProof.similarity,
-      message: 'Pet ownership transferred successfully on blockchain. VC processing in background.',
+      vcTransferJobId,
+      message: 'Pet ownership transferred successfully on blockchain. VC processing queued.',
     };
-  }
-
-  /**
-   * 비동기 VC 처리 (성능 최적화)
-   */
-  private async processVCTransferAsync(
-    petDID: string,
-    newGuardian: string,
-    previousGuardian: string,
-    signature: string,
-    message: any,
-    petData: PetDataDto
-  ) {
-    // 1. 이전 보호자 VC 무효화
-    try {
-      await this.vcProxyService.invalidateVC({
-        petDID,
-        guardianAddress: previousGuardian,
-        reason: 'ownership_transfer',
-      });
-    } catch (error) {
-      console.error('Failed to invalidate previous VC:', error);
-      // 계속 진행 (새 VC 생성은 독립적)
-    }
-
-    // 2. 새 VC 생성
-    try {
-      // Feature vector should be in message (from prepare-transfer)
-      const featureVector = message.featureVector;
-
-      await this.vcService.createTransferVC({
-        newGuardian,
-        signature,
-        message,
-        petDID,
-        petData,
-      });
-      console.log(`✅ Transfer VC created for ${petDID}`);
-    } catch (error) {
-      console.error('Failed to create transfer VC:', error);
-      // TODO: Retry logic or dead letter queue
-    }
   }
 
   /**
@@ -513,125 +438,75 @@ export class PetController {
   }
 
   /**
-   * 전체 펫 수 조회
+   * 펫 소유권 이전 히스토리 조회 (uses blockchain-indexer service)
    */
-  @Get('stats/total')
-  @ApiOperation({ summary: '전체 등록된 펫 수 조회' })
-  async getTotalPets() {
-    const total = await this.petService.getTotalPets();
-
-    return {
-      success: true,
-      totalPets: total
-    };
-  }
-
-  /**
-   * 펫 등록 여부 확인
-   */
-  @Get('check/:petDID')
-  @ApiOperation({ summary: '펫 등록 여부 확인' })
-  async checkPetRegistration(@Param('petDID') petDID: string) {
-    const isRegistered = await this.petService.isPetRegistered(petDID);
-
-    return {
-      success: true,
-      petDID,
-      isRegistered
-    };
-  }
-
-  /**
-   * 펫 소유권 이전 히스토리 조회
-   */
+  @Public()
   @Get('history/:petDID')
   @ApiOperation({ summary: '펫 소유권 이전 히스토리 (입양 기록) 조회' })
   async getPetControllerHistory(@Param('petDID') petDID: string) {
     try {
-      const history = await this.petService.getPetControllerHistory(petDID);
+      // grpc를 통한 블록체인 히스토리 쿼리
+      const indexerResponse = await this.indexerProxyService.getPetTransferHistory({
+        petDID,
+        limit: 100,
+        offset: 0,
+      });
 
+      if (!indexerResponse.success) {
+        // Fallback to blockchain if indexer fails
+        console.warn(`Indexer service failed for ${petDID}, falling back to blockchain`);
+        try {
+          const history = await this.petService.getPetControllerHistory(petDID);
+          return {
+            success: true,
+            ...history,
+            source: 'blockchain-fallback',
+          };
+        } catch (blockchainError) {
+          // If blockchain also fails due to RPC range limit
+          if (blockchainError.message && blockchainError.message.includes('RPC range limit')) {
+            const didDoc = await this.petService.getDIDDocument(petDID);
+            return {
+              success: true,
+              petDID,
+              currentController: didDoc.controller,
+              totalTransfers: null,
+              history: [],
+              warning: 'Full history unavailable - indexer offline and RPC range limit exceeded',
+              message: 'Only current controller is available.',
+              createdDate: didDoc.created ? new Date(didDoc.created * 1000).toISOString() : null,
+              source: 'blockchain-fallback-limited',
+            };
+          }
+          throw blockchainError;
+        }
+      }
+
+      // Return indexed data
       return {
         success: true,
-        ...history
+        petDID: indexerResponse.petDID,
+        totalTransfers: indexerResponse.totalTransfers,
+        currentController: indexerResponse.history.length > 0
+          ? indexerResponse.history[indexerResponse.history.length - 1].newController
+          : null,
+        history: indexerResponse.history.map(event => ({
+          previousController: event.previousController,
+          newController: event.newController,
+          blockNumber: event.blockNumber,
+          transactionHash: event.transactionHash,
+          timestamp: event.timestamp,
+          timestampISO: event.timestampISO,
+          transferIndex: event.transferIndex,
+        })),
+        source: 'blockchain-indexer',
       };
     } catch (error) {
       return {
         success: false,
         error: 'Failed to fetch pet history',
-        message: error.message
+        message: error.message,
       };
     }
-  }
-
-  /**
-   * 펫 비문 검증 히스토리 조회
-   */
-  @Get('verifications/:petDID')
-  @ApiOperation({ summary: '펫 비문 검증 히스토리 조회' })
-  async getVerificationHistory(@Param('petDID') petDID: string) {
-    try {
-      const verifications = await this.petService.getVerificationHistory(petDID);
-
-      return {
-        success: true,
-        petDID,
-        totalVerifications: verifications.length,
-        verifications
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: 'Failed to fetch verification history',
-        message: error.message
-      };
-    }
-  }
-
-  /**
-   * 특정 주소가 펫의 현재 보호자인지 확인
-   */
-  @Get('is-guardian/:petDID/:address')
-  @ApiOperation({ summary: '특정 주소가 펫의 현재 보호자인지 확인' })
-  async isAuthorizedGuardian(
-    @Param('petDID') petDID: string,
-    @Param('address') address: string
-  ) {
-    try {
-      const isAuthorized = await this.petService.isAuthorizedGuardian(petDID, address);
-
-      return {
-        success: true,
-        petDID,
-        address,
-        isAuthorizedGuardian: isAuthorized
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: 'Failed to check guardian authorization',
-        message: error.message
-      };
-    }
-  }
-
-  /**
-   * 블록체인 작업 상태 확인
-   */
-  @Get('blockchain-job/:jobId')
-  @ApiOperation({ summary: '블록체인 작업 상태 확인' })
-  async getBlockchainJobStatus(@Param('jobId') jobId: string) {
-    const status = await this.blockchainService.getJobStatus(jobId);
-
-    if (!status) {
-      return {
-        success: false,
-        error: 'Job not found'
-      };
-    }
-
-    return {
-      success: true,
-      job: status
-    };
   }
 }

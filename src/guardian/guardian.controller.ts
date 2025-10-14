@@ -5,6 +5,7 @@ import { CreateGuardianDto } from './dto/create-guardian.dto';
 import { UpdateGuardianDto } from './dto/update-guardian.dto';
 import { DIDAuthGuard } from 'src/auth/guard/did-auth-guard';
 import { VcProxyService } from 'src/vc/vc.proxy.service';
+import { SpringService } from 'src/spring/spring.service';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { ethers } from 'ethers';
 
@@ -15,6 +16,7 @@ export class GuardianController {
   constructor(
     private readonly guardianService: GuardianService,
     private readonly vcProxyService: VcProxyService,
+    private readonly springService: SpringService,
   ) {}
 
   /**
@@ -76,69 +78,33 @@ export class GuardianController {
         email: dto.email,
         phone: dto.phone,
         name: dto.name,
-        isEmailVerified: true
+        isEmailVerified: true,
+        isOnChainRegistered: true,
       });
+
+      // 5. 스프링에서는 불큐 처리 즉시성 필요 X
+      const springJobId = await this.springService.queueUserSync(
+        guardianAddress,
+        'register',
+        {
+          email: dto.email,
+          phone: dto.phone,
+          name: dto.name,
+          guardianId: vcResult.guardianId,
+        }
+      );
+      console.log(`📝 Queued Spring sync - Job ID: ${springJobId}`);
 
       return {
         success: true,
         guardianId: vcResult.guardianId,
         authId: authCheck.authId,
         txHash: txResult.txHash,
-        message: 'Guardian registered successfully',
+        springJobId,
+        message: 'Guardian registered successfully. Spring sync queued.',
       };
     }
 
     return txResult;
-  }
-
-  /**
-   * 관리자가 보호자 검증
-   */
-  @Post('verify/:guardianAddress')
-  @UseGuards(DIDAuthGuard) // TODO: AdminGuard로 변경 필요
-  @ApiOperation({ summary: '보호자 검증 (관리자 전용)' })
-  async verifyGuardian(@Param('guardianAddress') guardianAddress: string) {
-    const tx = await this.guardianService.verifyGuardian(
-      guardianAddress,
-      false, // smsVerified
-      true   // emailVerified (이메일 인증은 이미 완료됨)
-    );
-
-    return {
-      success: true,
-      txHash: tx.txHash,
-    };
-  }
-
-  @Get('profile/:address')
-  @ApiOperation({ summary: '보호자 프로필 조회' })
-  async getProfile(@Param('address') guardianAddress: string) {
-    return this.guardianService.getGuardianProfile(guardianAddress);
-  }
-
-  @Get('pets/:address')
-  @ApiOperation({ summary: '보호자 펫 목록 조회' })
-  async getPets(@Param('address') guardianAddress: string) {
-    return this.guardianService.getGuardianPets(guardianAddress);
-  }
-
-  @Get('verification/:address')
-  @ApiOperation({ summary: '보호자 검증 상태 조회' })
-  async getVerification(@Param('address') guardianAddress: string) {
-    return this.guardianService.getVerificationProof(guardianAddress);
-  }
-
-  @Get('total')
-  @ApiOperation({ summary: '전체 보호자 수 조회' })
-  async getTotalGuardians() {
-    return { total: await this.guardianService.getTotalGuardians() };
-  }
-
-  @Get('check/:address')
-  @ApiOperation({ summary: '보호자 등록 여부 확인' })
-  async checkRegistration(@Param('address') guardianAddress: string) {
-    return {
-      isRegistered: await this.guardianService.isGuardianRegistered(guardianAddress)
-    };
   }
 }

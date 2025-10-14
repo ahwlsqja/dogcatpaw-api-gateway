@@ -2,9 +2,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ethers } from 'ethers';
-import { PetDIDRegistryABI, getAddress } from '../abis';
-import { CreatePetDto } from './dto/create-pet.dto';
-import { UpdatePetDto } from './dto/update-pet.dto';
+import { PetDIDRegistryABI } from '../abis';
 import { envVariableKeys } from 'src/common/const/env.const';
 
 @Injectable()

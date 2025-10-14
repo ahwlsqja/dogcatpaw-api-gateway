@@ -116,7 +116,7 @@ export class NoseEmbedderController {
     return {
       service: 'Nose Embedder API Gateway',
       version: '1.0.0',
-      grpcEndpoint: 'localhost:50051',
+      grpcEndpoint: 'localhost:50052',
     };
   }
 }
