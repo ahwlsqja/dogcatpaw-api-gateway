@@ -42,9 +42,9 @@ import { IndexerModule } from './indexer/indexer.module';
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
         redis: {
-          host: configService.get<string>(envVariableKeys.redishost),
-          port: configService.get<number>(envVariableKeys.redisport),
-          password: configService.get<string>(envVariableKeys.redispassword),
+          host: configService.get<string>('BULL_REDIS_HOST') || configService.get<string>(envVariableKeys.redishost),
+          port: configService.get<number>('BULL_REDIS_PORT') || configService.get<number>(envVariableKeys.redisport),
+          // password: configService.get<string>('BULL_REDIS_PASSWORD') || configService.get<string>(envVariableKeys.redispassword),
         },
       }),
       inject: [ConfigService],
