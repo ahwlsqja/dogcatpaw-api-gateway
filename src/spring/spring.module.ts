@@ -6,11 +6,13 @@ import { SpringProxyService } from './spring.proxy.service';
 import { SpringController } from './spring.controller';
 import { SpringProcessor } from './spring.processor';
 import { VcModule } from 'src/vc/vc.module';
+import { AuthModule } from 'src/auth/auth.module';
 
 @Module({
   imports: [
     HttpModule,
     VcModule,
+    AuthModule,
     BullModule.registerQueue({
       name: 'spring-sync',
       defaultJobOptions: {

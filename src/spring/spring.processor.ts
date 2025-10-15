@@ -9,9 +9,18 @@ import { VcProxyService } from 'src/vc/vc.proxy.service';
 
 export interface UserSyncJob {
   walletAddress: string;
-  action: 'register' | 'update' | 'delete';
-  guardianInfo?: any;
-  petInfo?: any;
+  action: 'update' | 'delete';
+  userData?: any;
+}
+
+export interface UserRegisterJob {
+  walletAddress: string;
+  email?: string;
+  phone?: string;
+  name?: string;
+  gender?: string;
+  old?: number;
+  address?: string;
 }
 
 export interface PetTransferJob {
@@ -62,7 +71,10 @@ export class SpringProcessor {
 
   @OnQueueActive()
   onActive(job: Job) {
-    if (job.name === 'sync-user') {
+    if (job.name === 'register') {
+      const data = job.data as UserRegisterJob;
+      this.logger.log(`Processing job ${job.id} - Registering user ${data.walletAddress} to Spring`);
+    } else if (job.name === 'sync-user') {
       const data = job.data as UserSyncJob;
       this.logger.log(`Processing job ${job.id} - Syncing user ${data.walletAddress} to Spring (${data.action})`);
     } else if (job.name === 'sync-transfer') {
@@ -91,55 +103,82 @@ export class SpringProcessor {
   }
 
   /**
-   * Sync user (guardian) data to Spring server
+   * Register new user to Spring server (signup)
+   * Maps guardian DTO fields to Spring API /api/auth/signup
    */
-  @Process('sync-user')
-  async handleUserSync(job: Job<UserSyncJob>) {
-    const { walletAddress, action, guardianInfo } = job.data;
+  @Process('register')
+  async handleUserRegister(job: Job<UserRegisterJob>) {
+    const {
+      walletAddress,
+      email,
+      phone,
+      name,
+      gender,
+      old,
+      address
+    } = job.data;
 
     try {
       const startTime = Date.now();
 
-      // 1. Get all VCs from vc-service
-      const vcsResponse = await this.vcProxyService.getVCsByWallet({
-        walletAddress
-      }).catch(() => ({ vcs: [] }));
-      const vcs = vcsResponse.vcs || [];
-
-      // 2. Get guardian info if not provided
-      let guardian = guardianInfo;
-      if (!guardian && action !== 'delete') {
-        guardian = await this.vcProxyService.getGuardianInfo({
-          walletAddress
-        }).catch(() => null);
-      }
-
-      // 3. Prepare data for Spring
-      const springData = {
+      // Map guardian DTO fields to Spring API signup fields
+      const signupData = {
         walletAddress,
-        did: `did:ethr:besu:${walletAddress}`,
-        guardian,
-        credentials: {
-          total: vcs.length,
-          pets: vcs.filter((vc: any) => vc.vcType === 'PetOwnership').map((vc: any) => ({
-            petDID: vc.credentialSubject?.petDID,
-            name: vc.credentialSubject?.name,
-            species: vc.credentialSubject?.species,
-          })),
-        },
-        action,
-        timestamp: new Date().toISOString(),
+        username: name || walletAddress?.substring(0, 10) || 'unknown',
+        nickname: name || walletAddress?.substring(0, 8) || 'unknown',
+        gender: gender || '',
+        old: old || 0,
+        address: address || '',
+        phoneNumber: phone || '',
+        type: 'GUARDIAN',
+        email: email || '',
       };
 
-      // 4. Send to Spring server
+      this.logger.debug(`Registering user to Spring: ${JSON.stringify(signupData)}`);
+
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `${this.springBaseUrl}/api/auth/signup`,
+          signupData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Gateway': 'dogcatpaw',
+            }
+          }
+        )
+      );
+
+      const duration = Date.now() - startTime;
+      this.logger.log(`✅ User registration to Spring took ${duration}ms for ${walletAddress}`);
+
+      return {
+        success: true,
+        walletAddress,
+        springResponse: response.data,
+        duration
+      };
+    } catch (error) {
+      this.logger.error(`❌ Spring registration error for ${walletAddress}:`, error.message);
+      throw error; // Bull will retry
+    }
+  }
+
+  /**
+   * Sync user (guardian) data to Spring server (update/delete only)
+   */
+  @Process('sync-user')
+  async handleUserSync(job: Job<UserSyncJob>) {
+    const { walletAddress, action, userData } = job.data;
+
+    try {
+      const startTime = Date.now();
+
+      // Send to Spring server
       let endpoint = '';
-      let method: 'post' | 'put' | 'delete' = 'post';
+      let method: 'put' | 'delete' = 'put';
 
       switch (action) {
-        case 'register':
-          endpoint = '/api/auth/signup';
-          method = 'post';
-          break;
         case 'update':
           endpoint = `/api/users/${walletAddress}`;
           method = 'put';
@@ -153,7 +192,7 @@ export class SpringProcessor {
       const response = await firstValueFrom(
         this.httpService[method](
           `${this.springBaseUrl}${endpoint}`,
-          springData,
+          userData || {},
           {
             headers: {
               'Content-Type': 'application/json',
@@ -164,7 +203,7 @@ export class SpringProcessor {
       );
 
       const duration = Date.now() - startTime;
-      this.logger.debug(`Spring sync took ${duration}ms for ${walletAddress}`);
+      this.logger.log(`✅ Spring ${action} sync took ${duration}ms for ${walletAddress}`);
 
       return {
         success: true,
@@ -174,7 +213,7 @@ export class SpringProcessor {
         duration
       };
     } catch (error) {
-      this.logger.error(`Spring sync error for ${walletAddress}:`, error.message);
+      this.logger.error(`❌ Spring ${action} error for ${walletAddress}:`, error.message);
       throw error; // Bull will retry
     }
   }

@@ -5,6 +5,7 @@ import { Queue } from 'bull';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { ConfigService } from '@nestjs/config';
+import { envVariableKeys } from 'src/common/const/env.const';
 
 @Injectable()
 export class SpringService {
@@ -16,25 +17,54 @@ export class SpringService {
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
-    this.springBaseUrl = this.configService.get<string>('SPRING_SERVER_URL') || 'http://localhost:8080';
+    this.springBaseUrl = this.configService.get<string>(envVariableKeys.springurl) || 'http://localhost:8080';
   }
 
   /**
-   * Queue user sync to Spring (async for quick response)
+   * Queue user registration to Spring (async for quick response)
+   * Maps guardian DTO fields to Spring API /api/auth/signup
+   */
+  async queueUserRegister(
+    walletAddress: string,
+    guardianDto: {
+      email?: string;
+      phone?: string;
+      name?: string;
+      gender?: string;
+      old?: number;
+      address?: string;
+    }
+  ) {
+    const job = await this.springQueue.add('register', {
+      walletAddress,
+      email: guardianDto.email,
+      phone: guardianDto.phone,
+      name: guardianDto.name,
+      gender: guardianDto.gender,
+      old: guardianDto.old,
+      address: guardianDto.address,
+    }, {
+      priority: 1,
+    });
+
+    this.logger.log(`Queued user registration job ${job.id} for ${walletAddress}`);
+    return job.id;
+  }
+
+  /**
+   * Queue user sync to Spring (update/delete only)
    */
   async queueUserSync(
     walletAddress: string,
-    action: 'register' | 'update' | 'delete',
-    guardianInfo?: any,
-    petInfo?: any
+    action: 'update' | 'delete',
+    userData?: any
   ) {
     const job = await this.springQueue.add('sync-user', {
       walletAddress,
       action,
-      guardianInfo,
-      petInfo
+      userData
     }, {
-      priority: action === 'register' ? 1 : 2,
+      priority: 2,
     });
 
     this.logger.log(`Queued user sync job ${job.id} for ${walletAddress} (${action})`);

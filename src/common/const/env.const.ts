@@ -15,6 +15,7 @@ const endpoint = 'AWS_ENDPOINT'
 const rpcurl = 'RPC_URL'
 const keyofadmin = 'ADMIN_PRIVATE_KEY'
 const guardianregistryaddress = 'GUARDIAN_REGISTRY_ADDRESS'
+const springurl = 'SPRING_SERVER_URL'
 
 
 export const envVariableKeys = {
@@ -34,5 +35,6 @@ export const envVariableKeys = {
     endpoint,
     rpcurl,
     keyofadmin,
-    guardianregistryaddress
+    guardianregistryaddress,
+    springurl
 }

@@ -27,6 +27,30 @@ export class CreateGuardianDto {
   name?: string;
 
   @ApiPropertyOptional({
+    description: '성별',
+    example: 'M'
+  })
+  @IsOptional()
+  @IsString()
+  gender?: string;
+
+  @ApiPropertyOptional({
+    description: '나이',
+    example: 30
+  })
+  @IsOptional()
+  @IsNumber()
+  old?: number;
+
+  @ApiPropertyOptional({
+    description: '주소',
+    example: '서울시 강남구'
+  })
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @ApiPropertyOptional({
     description: '보호자 지갑 주소 (인증 시 자동으로 설정됨)',
     example: '0x1234567890123456789012345678901234567890'
   })

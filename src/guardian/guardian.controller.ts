@@ -82,18 +82,19 @@ export class GuardianController {
         isOnChainRegistered: true,
       });
 
-      // 5. 스프링에서는 불큐 처리 즉시성 필요 X
-      const springJobId = await this.springService.queueUserSync(
+      // 5. 스프링에서는 불큐 처리 즉시성 필요 X - 별도 register 큐 사용
+      const springJobId = await this.springService.queueUserRegister(
         guardianAddress,
-        'register',
         {
           email: dto.email,
           phone: dto.phone,
           name: dto.name,
-          guardianId: vcResult.guardianId,
+          gender: dto.gender,
+          old: dto.old,
+          address: dto.address,
         }
       );
-      console.log(`📝 Queued Spring sync - Job ID: ${springJobId}`);
+      console.log(`📝 Queued Spring registration - Job ID: ${springJobId}`);
 
       return {
         success: true,
