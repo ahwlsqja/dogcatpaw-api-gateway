@@ -16,6 +16,10 @@ declare namespace Express {
       address: string;
       walletAddress?: string;
       tokenBody?: any;
+      // VP verification fields (One Session = One VP)
+      vpVerified?: boolean;
+      vpHolder?: string;
+      vcCount?: number;
     };
   }
 }

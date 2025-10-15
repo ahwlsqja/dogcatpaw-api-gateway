@@ -4,8 +4,9 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { join } from 'path';
-import { NoseEmbedderController } from './nose-embedder.controller';
-import { NoseEmbedderService } from './nose-embedder.service';
+import { NoseEmbedderController } from './nose-embedding.controller';
+import { NoseEmbedderProxyService } from './nose-embedding.proxy.service';
+
 
 @Module({
   imports: [
@@ -23,13 +24,14 @@ import { NoseEmbedderService } from './nose-embedder.service';
             enums: String,
             defaults: true,
             oneofs: true,
+            bytes: Array
           },
         },
       },
     ]),
   ],
   controllers: [NoseEmbedderController],
-  providers: [NoseEmbedderService],
-  exports: [NoseEmbedderService],
+  providers: [NoseEmbedderProxyService],
+  exports: [NoseEmbedderProxyService],
 })
 export class NoseEmbedderModule {}

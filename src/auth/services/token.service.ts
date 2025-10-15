@@ -14,45 +14,7 @@ export class TokenService {
   }
 
   /**
-   * 토큰 검증 결과 캐싱 (L1: 로컬, L2: Redis)
-   */
-  async getVerifiedToken(token: string): Promise<{ address: string } | null> {
-    const cacheKey = `token:${token}`;
-
-    // 1. 로컬 캐시 확인 (빠름)
-    const localCache = await this.cacheManager.get<{ address: string }>(cacheKey);
-    if (localCache) {
-      return localCache;
-    }
-
-    // 2. Redis 캐시 확인 (중간)
-    const redisCache = await this.redisService.get(cacheKey);
-    if (redisCache) {
-      const data = JSON.parse(redisCache);
-      // 로컬 캐시에도 저장 (TTL 짧게)
-      await this.cacheManager.set(cacheKey, data, 60); // 1분
-      return data;
-    }
-
-    return null;
-  }
-
-  /**
-   * 토큰 검증 결과 저장
-   */
-  async setVerifiedToken(token: string, address: string, ttl: number = 3600): Promise<void> {
-    const cacheKey = `token:${token}`;
-    const data = { address };
-
-    // 1. Redis에 저장 (영속성)
-    await this.redisService.setex(cacheKey, ttl, JSON.stringify(data));
-
-    // 2. 로컬 캐시에도 저장 (빠른 조회)
-    await this.cacheManager.set(cacheKey, data, Math.min(ttl, 300)); // 최대 5분
-  }
-
-  /**
-   * 토큰 블록 (로그아웃)
+   * 토큰 블록 (로그아웃) - 세션 무효화
    */
   async blockToken(token: string, ttl: number = 86400): Promise<void> {
     const blockKey = `blocked:${token}`;
@@ -71,27 +33,90 @@ export class TokenService {
   }
 
   /**
-   * 지갑 주소로 모든 토큰 블록 (전체 로그아웃)
+   * 지갑 주소로 모든 세션 블록 (전체 로그아웃)
+   * 1 Address → N Sessions (multiple VPs)
    */
   async blockAllTokensByAddress(address: string): Promise<void> {
-    const pattern = `token:*`;
+    const pattern = `vp:token:*`;
     const stream = this.redisService.scanStream({ match: pattern });
 
     for await (const keys of stream) {
       for (const key of keys) {
         const data = await this.redisService.get(key);
         if (data) {
-          const parsed = JSON.parse(data);
-          if (parsed.address.toLowerCase() === address.toLowerCase()) {
-            // 해당 토큰 블록
-            const token = key.replace('token:', '');
-            await this.blockToken(token);
-            // 캐시에서 삭제
-            await this.redisService.del(key);
-            await this.cacheManager.del(key);
+          try {
+            const parsed = JSON.parse(data);
+            const vpJwt = parsed.vpJwt;
+
+            // Decode VP to check holder (address)
+            // VP JWT format: header.payload.signature
+            const payload = JSON.parse(
+              Buffer.from(vpJwt.split('.')[1], 'base64url').toString()
+            );
+
+            const vpHolder = payload.iss?.replace('did:ethr:besu:', '') ||
+                           payload.vp?.holder?.replace('did:ethr:besu:', '');
+
+            if (vpHolder?.toLowerCase() === address.toLowerCase()) {
+              // Extract token from key: vp:token:{token}
+              const token = key.replace('vp:token:', '');
+
+              // Block token and delete VP
+              await this.blockToken(token);
+              await this.deleteVPForToken(token);
+            }
+          } catch (error) {
+            console.error(`Error processing VP key ${key}:`, error);
           }
         }
       }
     }
+  }
+
+  /**
+   * VP 당 하나의 세션
+   */
+  async setVPForToken(token: string, vpJwt: string, ttl: number = 3600): Promise<void> {
+    const vpKey = `vp:token:${token}`;
+    const data = { vpJwt, createdAt: Date.now() };
+
+    // 레디스에 영속성 저장
+    await this.redisService.setex(vpKey, ttl, JSON.stringify(data));
+
+    // 로컬 캐시에도 저장
+    await this.cacheManager.set(vpKey, data, Math.min(ttl, 300)); // Max 5 minutes
+  }
+
+  /**
+   * VP 세션 토큰 GET
+   */
+  async getVPForToken(token: string): Promise<string | null> {
+    const vpKey = `vp:token:${token}`;
+
+    // 1. 로컬 찾아보고 없으면 
+    const localCache = await this.cacheManager.get<{ vpJwt: string }>(vpKey);
+    if (localCache) {
+      return localCache.vpJwt;
+    }
+
+    // 2. 레디스 체크
+    const redisCache = await this.redisService.get(vpKey);
+    if (redisCache) {
+      const data = JSON.parse(redisCache);
+      // 로컬 캐시 저장
+      await this.cacheManager.set(vpKey, data, 60); // 1 minute
+      return data.vpJwt;
+    }
+
+    return null;
+  }
+
+  /**
+   * Delete VP JWT mapped to token
+   */
+  async deleteVPForToken(token: string): Promise<void> {
+    const vpKey = `vp:token:${token}`;
+    await this.redisService.del(vpKey);
+    await this.cacheManager.del(vpKey);
   }
 }

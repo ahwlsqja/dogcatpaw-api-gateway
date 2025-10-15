@@ -16,6 +16,21 @@ export class RegisterAuthResponseDto {
   error?: string;
 }
 
+export class GetGuardianInfoResponseDto{
+  success: boolean;
+  guardianId: number;
+  email: string;
+  phone: string;
+  name: string;
+  isEmailVerified: boolean;
+  isOnChainRegistered: boolean;
+  errer?: string;
+}
+
+export class GetGuardianInfoRequestDto{
+  walletAddress: string;
+}
+
 export class CheckAuthResponseDto {
   success: boolean;
   authId?: number;
@@ -30,6 +45,7 @@ export class UpdateGuardianInfoRequestDto {
   phone?: string;
   name?: string;
   isEmailVerified?: boolean;
+  isOnChainRegistered?: boolean
 }
 
 export class UpdateGuardianInfoResponseDto {

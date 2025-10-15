@@ -1,7 +1,20 @@
 {
   "permissions": {
     "allow": [
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Read(//c/Users/user/blockchain-indexer/**)",
+      "Bash(curl -L https://github.com/protocolbuffers/protobuf/releases/download/v25.1/protoc-25.1-win64.zip -o protoc.zip)",
+      "Bash(unzip:*)",
+      "Bash(./protoc-bin/bin/protoc.exe:*)",
+      "Bash(go build:*)",
+      "Bash(CGO_ENABLED=0 go build:*)",
+      "Bash(./bin/indexer.exe)",
+      "Read(//c/Users/user/**)",
+      "Bash(tree:*)",
+      "Bash(npm install)",
+      "Bash(dir node_modules)",
+      "Bash(npm run start:dev:*)",
+      "Bash(npm run dev)"
     ],
     "deny": [],
     "ask": []

@@ -5,12 +5,14 @@ package vc;
 
 service VCService {
   rpc RegisterAuth (RegisterAuthRequest) returns (RegisterAuthResponse);
+  rpc CheckAuth (CheckAuthRequest) returns (CheckAuthResponse);
+  rpc GetGuardianInfo (GetGuardianInfoRequest) returns (GetGuardianInfoResponse);
   rpc UpdateGuardianInfo (UpdateGuardianRequest) returns (UpdateGuardianResponse);
   rpc UpdateShelterInfo (UpdateShelterRequest) returns (UpdateShelterResponse);
   rpc StoreVC (StoreVCRequest) returns (StoreVCResponse);
   rpc GetVC (GetVCRequest) returns (GetVCResponse);
   rpc GetVCsByWallet (GetVCsByWalletRequest) returns (GetVCsByWalletResponse);
-  rpc CheckAuth (CheckAuthRequest) returns (CheckAuthResponse);
+  rpc InvalidateVC (InvalidateVCRequest) returns (InvalidateVCResponse);
   rpc HealthCheck (HealthCheckRequest) returns (HealthCheckResponse);
 }
 
@@ -74,6 +76,7 @@ message UpdateGuardianRequest {
   string phone = 3;
   string name = 4;
   bool isEmailVerified = 5;
+  bool isOnChainRegistered = 6;
 }
 
 message UpdateGuardianResponse {
@@ -107,6 +110,33 @@ message CheckAuthResponse {
   int32 authId = 2;
   string message = 3;
   string error = 4;
+}
+
+message GetGuardianInfoRequest {
+  string walletAddress = 1;
+}
+
+message GetGuardianInfoResponse {
+  bool success = 1;
+  int32 guardianId = 2;
+  string email = 3;
+  string phone = 4;
+  string name = 5;
+  bool isEmailVerified = 6;
+  bool isOnChainRegistered = 7;
+  string error = 8;
+}
+
+message InvalidateVCRequest {
+  string petDID = 1;
+  string guardianAddress = 2;
+  string reason = 3;
+}
+
+message InvalidateVCResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
 }
 
 message HealthCheckRequest {

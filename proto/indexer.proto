@@ -1,0 +1,104 @@
+// proto/indexer.proto
+syntax = "proto3";
+
+package indexer;
+
+service IndexerService {
+  rpc GetPetTransferHistory (GetPetTransferHistoryRequest) returns (GetPetTransferHistoryResponse);
+  rpc GetPetCurrentController (GetPetCurrentControllerRequest) returns (GetPetCurrentControllerResponse);
+  rpc GetTransfersByController (GetTransfersByControllerRequest) returns (GetTransfersByControllerResponse);
+  rpc GetIndexerStats (GetIndexerStatsRequest) returns (GetIndexerStatsResponse);
+  rpc HealthCheck (HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Request/Response for GetPetTransferHistory
+message GetPetTransferHistoryRequest {
+  string petDID = 1;
+  int32 limit = 2;      // Optional: limit number of results
+  int32 offset = 3;     // Optional: pagination offset
+}
+
+message GetPetTransferHistoryResponse {
+  bool success = 1;
+  string petDID = 2;
+  int32 totalTransfers = 3;
+  repeated TransferEvent history = 4;
+  string error = 5;
+}
+
+message TransferEvent {
+  string petDID = 1;
+  string previousController = 2;
+  string newController = 3;
+  int64 blockNumber = 4;
+  string transactionHash = 5;
+  int64 timestamp = 6;
+  string timestampISO = 7;
+  int32 transferIndex = 8;  // 0 for first transfer, 1 for second, etc.
+}
+
+// Request/Response for GetPetCurrentController
+message GetPetCurrentControllerRequest {
+  string petDID = 1;
+}
+
+message GetPetCurrentControllerResponse {
+  bool success = 1;
+  string petDID = 2;
+  string currentController = 3;
+  int64 lastTransferTimestamp = 4;
+  string lastTransferTimestampISO = 5;
+  int32 totalTransfers = 6;
+  string error = 7;
+}
+
+// Request/Response for GetTransfersByController
+message GetTransfersByControllerRequest {
+  string controllerAddress = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message GetTransfersByControllerResponse {
+  bool success = 1;
+  string controllerAddress = 2;
+  int32 totalTransfers = 3;
+  repeated TransferEvent transfers = 4;
+  string error = 5;
+}
+
+// Request/Response for GetIndexerStats
+message GetIndexerStatsRequest {
+  string query = 1;  // Optional: reserved for future use
+}
+
+message GetIndexerStatsResponse {
+  bool success = 1;
+  int64 totalPetsTracked = 2;
+  int64 totalTransfers = 3;
+  int64 lastIndexedBlock = 4;
+  int64 currentBlockNumber = 5;
+  bool isSyncing = 6;
+  string lastSyncTime = 7;
+  string error = 8;
+}
+
+// Request/Response for HealthCheck
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+    SERVICE_UNKNOWN = 3;
+  }
+  ServingStatus status = 1;
+  string message = 2;
+  string timestamp = 3;
+  string version = 4;
+  bool databaseConnected = 5;
+  bool blockchainConnected = 6;
+}
