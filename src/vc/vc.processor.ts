@@ -23,6 +23,8 @@ export class VcProcessor {
     if (job.name === 'process-vc-transfer') {
       const data = job.data as VCTransferJob;
       this.logger.log(`Processing job ${job.id} - Processing VC transfer for pet: ${data.petDID}`);
+    } else if (job.name === 'sync-guardian-info') {
+      this.logger.log(`Processing job ${job.id} - Syncing guardian info for: ${job.data.walletAddress}`);
     }
   }
 
@@ -31,6 +33,8 @@ export class VcProcessor {
     if (job.name === 'process-vc-transfer') {
       const data = job.data as VCTransferJob;
       this.logger.log(`Job ${job.id} completed - VC transfer processed for pet: ${data.petDID}`);
+    } else if (job.name === 'sync-guardian-info') {
+      this.logger.log(`Job ${job.id} completed - Guardian info synced for: ${job.data.walletAddress}`);
     }
   }
 
@@ -42,6 +46,46 @@ export class VcProcessor {
         `Job ${job.id} failed - VC transfer for pet: ${data.petDID} | Attempt: ${job.attemptsMade}/${job.opts.attempts}`,
         error.stack
       );
+    } else if (job.name === 'sync-guardian-info') {
+      this.logger.error(
+        `Job ${job.id} failed - Guardian sync for: ${job.data.walletAddress} | Attempt: ${job.attemptsMade}/${job.opts.attempts}`,
+        error.stack
+      );
+    }
+  }
+
+  /**
+   * Process Guardian Info Sync to VC Service
+   */
+  @Process('sync-guardian-info')
+  async handleGuardianSync(job: Job) {
+    const { walletAddress, email, phone, name, isEmailVerified, isOnChainRegistered } = job.data;
+
+    try {
+      const startTime = Date.now();
+
+      const result = await this.vcProxyService.updateGuardianInfo({
+        walletAddress,
+        email,
+        phone,
+        name,
+        isEmailVerified,
+        isOnChainRegistered,
+      });
+
+      const duration = Date.now() - startTime;
+      this.logger.debug(`Guardian sync took ${duration}ms for ${walletAddress}`);
+
+      return {
+        success: true,
+        guardianId: result.guardianId,
+        walletAddress,
+        duration,
+        message: 'Guardian info synced successfully'
+      };
+    } catch (error) {
+      this.logger.error(`Guardian sync error for ${walletAddress}:`, error.message);
+      throw error; // Bull will retry based on configuration
     }
   }
 

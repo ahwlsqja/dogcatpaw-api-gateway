@@ -3,6 +3,6 @@
  * female
  */
 export enum Gender {
-    male,
-    female
+    MAIL,
+    FEMAIL
 }

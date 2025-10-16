@@ -12,6 +12,15 @@ import { RedisModule } from 'src/common/redis/redis.module';
     VcModule,
     BullModule.registerQueue({
       name: 'email',
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 2000,
+        },
+        removeOnComplete: true,
+        removeOnFail: false,
+      },
     }),
   ],
   controllers: [EmailController],

@@ -43,6 +43,35 @@ export class VcQueueService {
   }
 
   /**
+   * Queue Guardian Info Sync to VC Service
+   */
+  async queueGuardianSync(
+    walletAddress: string,
+    email: string,
+    phone?: string,
+    name?: string,
+  ) {
+    const job = await this.vcQueue.add('sync-guardian-info', {
+      walletAddress,
+      email,
+      phone,
+      name,
+      isEmailVerified: true,
+      isOnChainRegistered: true,
+    }, {
+      priority: 1, // High priority
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 2000,
+      }
+    });
+
+    this.logger.log(`Queued guardian sync job ${job.id} for ${walletAddress}`);
+    return job.id;
+  }
+
+  /**
    * Get job status
    */
   async getJobStatus(jobId: string) {

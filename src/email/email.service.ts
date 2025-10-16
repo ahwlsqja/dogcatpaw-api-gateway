@@ -51,8 +51,10 @@ export class EmailService {
     `;
 
     try {
+      console.log(`📧 Adding email job to queue for: ${email}`);
+
       // 큐에 작업 추가 (즉시 반환)
-      await this.emailQueue.add('send-verification', {
+      const job = await this.emailQueue.add('send-verification', {
         to: email,
         subject: '🐾 PetDID 이메일 인증',
         html,
@@ -64,9 +66,12 @@ export class EmailService {
         },
       });
 
+      console.log(`✅ Email job added to queue - Job ID: ${job.id}`);
+
       return {
         success: true,
         message: '인증 코드가 발송되었습니다!',
+        jobId: job.id,
       };
     } catch (error) {
       console.error('이메일 큐 추가 에러:', error);

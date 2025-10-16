@@ -64,10 +64,68 @@ export class GuardianService {
 
   /**
    * 서명된 트랜잭션 전송 (프로덕션 모드)
+   * Handles both:
+   * - Raw signed transactions (200+ chars) - broadcasts them
+   * - Transaction hashes (66 chars) - verifies they exist on-chain
    */
   async sendSignedTransaction(signedTx: string) {
+    // Validate basic format
+    if (!signedTx || !signedTx.startsWith('0x')) {
+      throw new Error('Invalid signed transaction: must start with 0x');
+    }
+
+    // Check if this is a transaction hash (66 chars) or raw signed tx (200+ chars)
+    if (signedTx.length === 66) {
+      // This is a transaction hash - the transaction was already broadcast by the wallet
+      console.log(`🔍 Received transaction hash (wallet already broadcast): ${signedTx}`);
+
+      try {
+        // Wait for the transaction to be mined
+        const receipt = await this.provider.waitForTransaction(signedTx, 1, 30000); // 30 second timeout
+
+        if (!receipt) {
+          throw new Error('Transaction not found or timed out');
+        }
+
+        // ⚠️ IMPORTANT: Check if transaction was successful (status = 1) or reverted (status = 0)
+        if (receipt.status === 0) {
+          console.error(`❌ Transaction reverted - Block: ${receipt.blockNumber}, Hash: ${signedTx}`);
+          throw new Error('Transaction was mined but reverted on-chain');
+        }
+
+        console.log(`✅ Transaction confirmed - Block: ${receipt.blockNumber}`);
+
+        return {
+          success: true,
+          txHash: signedTx,
+          blockNumber: receipt.blockNumber,
+          gasUsed: receipt.gasUsed.toString(),
+        };
+      } catch (error) {
+        throw new Error(
+          `Failed to verify transaction hash: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+
+    // This is a raw signed transaction - broadcast it
+    if (signedTx.length < 100) {
+      throw new Error(
+        `Invalid format: received ${signedTx.length} chars. ` +
+        `Expected either 66 chars (tx hash) or 200+ chars (raw signed tx).`
+      );
+    }
+
+    console.log(`📝 Broadcasting signed transaction (${signedTx.length} chars): ${signedTx.substring(0, 50)}...`);
+
     const tx = await this.provider.broadcastTransaction(signedTx);
     const receipt = await tx.wait();
+
+    // Check if transaction was successful
+    if (receipt.status === 0) {
+      console.error(`❌ Transaction reverted - Block: ${receipt.blockNumber}, Hash: ${tx.hash}`);
+      throw new Error('Transaction was mined but reverted on-chain');
+    }
 
     return {
       success: true,

@@ -5,6 +5,7 @@ import { CreateGuardianDto } from './dto/create-guardian.dto';
 import { UpdateGuardianDto } from './dto/update-guardian.dto';
 import { DIDAuthGuard } from 'src/auth/guard/did-auth-guard';
 import { VcProxyService } from 'src/vc/vc.proxy.service';
+import { VcQueueService } from 'src/vc/vc-queue.service';
 import { SpringService } from 'src/spring/spring.service';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { ethers } from 'ethers';
@@ -16,6 +17,7 @@ export class GuardianController {
   constructor(
     private readonly guardianService: GuardianService,
     private readonly vcProxyService: VcProxyService,
+    private readonly vcQueueService: VcQueueService,
     private readonly springService: SpringService,
   ) {}
 
@@ -53,7 +55,17 @@ export class GuardianController {
       };
     }
 
-    // 3. 블록체인에 보호자 등록
+    // 3. 블록체인에 이미 등록되어 있는지 확인
+    const isAlreadyRegistered = await this.guardianService.isGuardianRegistered(guardianAddress);
+    if (isAlreadyRegistered) {
+      return {
+        success: false,
+        error: '이미 블록체인에 등록된 주소입니다. 중복 등록은 불가능합니다.',
+        alreadyRegistered: true
+      };
+    }
+
+    // 4. 블록체인에 보호자 등록
     const personalDataHash = ethers.keccak256(
       ethers.toUtf8Bytes(JSON.stringify({
         email: dto.email,
@@ -63,6 +75,11 @@ export class GuardianController {
       }))
     );
 
+    // Production mode logging
+    if (process.env.NODE_ENV === 'production' && dto.signedTx) {
+      console.log(`🔐 Production mode: Received signedTx (${dto.signedTx?.length} chars): ${dto.signedTx?.substring(0, 50)}...`);
+    }
+
     const txResult = await this.guardianService.registerGuardian(
       guardianAddress,
       personalDataHash,
@@ -71,37 +88,40 @@ export class GuardianController {
       dto.signedTx
     );
 
-    // 4. 트랜잭션 성공 후 VC Service에 Guardian 정보 저장
+    // 5. 트랜잭션 성공 후 즉시 응답 반환 + 백그라운드에서 VC/Spring 동기화
     if (txResult.success) {
-      const vcResult = await this.vcProxyService.updateGuardianInfo({
-        walletAddress: guardianAddress,
-        email: dto.email,
-        phone: dto.phone,
-        name: dto.name,
-        isEmailVerified: true,
-        isOnChainRegistered: true,
-      });
-
-      // 5. 스프링에서는 불큐 처리 즉시성 필요 X
-      const springJobId = await this.springService.queueUserSync(
+      // 🚀 Queue VC sync (fire & forget)
+      const vcJobId = await this.vcQueueService.queueGuardianSync(
         guardianAddress,
-        'register',
+        dto.email,
+        dto.phone,
+        dto.name,
+      );
+      console.log(`📝 Queued VC sync - Job ID: ${vcJobId}`);
+
+      // 🚀 Queue Spring sync (fire & forget)
+      const springJobId = await this.springService.queueUserRegister(
+        guardianAddress,
         {
           email: dto.email,
           phone: dto.phone,
           name: dto.name,
-          guardianId: vcResult.guardianId,
+          gender: dto.gender,
+          old: dto.old,
+          address: dto.address,
         }
       );
-      console.log(`📝 Queued Spring sync - Job ID: ${springJobId}`);
+      console.log(`📝 Queued Spring registration - Job ID: ${springJobId}`);
 
+      // 즉시 프론트로 응답 반환
       return {
         success: true,
-        guardianId: vcResult.guardianId,
         authId: authCheck.authId,
         txHash: txResult.txHash,
+        blockNumber: txResult.blockNumber,
+        vcJobId,
         springJobId,
-        message: 'Guardian registered successfully. Spring sync queued.',
+        message: 'Guardian registered on blockchain. Syncing data in background.',
       };
     }
 
