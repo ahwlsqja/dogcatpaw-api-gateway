@@ -87,16 +87,34 @@ export class GuardianService {
     personalDataHash: string,
     ncpStorageURI: string,
     verificationMethod: number,
-    signedTx?: string  // 프로덕션에서 프론트엔드가 서명한 트랜잭션
+    signedTx?: string  // 프로덕션에서 프론트엔드가 보낸 트랜잭션 해시
   ) {
     const isDevelopment = process.env.NODE_ENV !== 'production';
 
-    // 프로덕션 모드 + 서명된 트랜잭션이 있는 경우
+    // 프로덕션 모드 + 트랜잭션 해시가 있는 경우 (프론트엔드가 이미 전송함)
     if (!isDevelopment && signedTx) {
-      return this.sendSignedTransaction(signedTx);
+      // signedTx는 실제로 txHash (프론트엔드가 이미 전송한 트랜잭션의 해시)
+      // 트랜잭션이 블록체인에 포함될 때까지 기다림
+      const receipt = await this.provider.waitForTransaction(signedTx);
+
+      if (!receipt) {
+        throw new Error('Transaction not found or failed');
+      }
+
+      // Check transaction status - 0 means failed/reverted, 1 means success
+      if (receipt.status === 0) {
+        throw new Error('Transaction failed/reverted on blockchain');
+      }
+
+      return {
+        success: true,
+        txHash: signedTx,
+        blockNumber: receipt.blockNumber,
+        gasUsed: receipt.gasUsed.toString(),
+      };
     }
 
-    // 프로덕션 모드 + 서명된 트랜잭션이 없는 경우: 트랜잭션 데이터만 반환
+    // 프로덕션 모드 + 트랜잭션 해시가 없는 경우: 트랜잭션 데이터만 반환
     if (!isDevelopment && !signedTx) {
       return {
         requiresSignature: true,

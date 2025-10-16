@@ -14,7 +14,9 @@
       "Bash(npm install)",
       "Bash(dir node_modules)",
       "Bash(npm run start:dev:*)",
-      "Bash(npm run dev)"
+      "Bash(npm run dev)",
+      "Bash(test:*)",
+      "Bash(node check-guardian.js)"
     ],
     "deny": [],
     "ask": []
