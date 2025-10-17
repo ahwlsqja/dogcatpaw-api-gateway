@@ -20,6 +20,7 @@ declare namespace Express {
       vpVerified?: boolean;
       vpHolder?: string;
       vcCount?: number;
+      isGuardian?: boolean;
     };
   }
 }

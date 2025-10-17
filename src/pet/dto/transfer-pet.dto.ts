@@ -46,7 +46,7 @@ export class AcceptTransferDto {
   verificationProof: any;
 
   @ApiPropertyOptional({
-    description: '서명된 트랜잭션 (프로덕션 모드)',
+    description: '서명된 트랜잭션 - PetDIDRegistry.changeController (프로덕션 모드)',
     example: '0x...'
   })
   @IsOptional()

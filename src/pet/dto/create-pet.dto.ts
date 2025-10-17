@@ -123,4 +123,27 @@ export class CreatePetDto {
   @IsOptional()
   @IsString()
   signedTx?: string;
+
+  @ApiPropertyOptional({
+    description: 'VC 발급을 위한 서명 (보호자가 VC 발급에 동의했음을 증명)',
+    example: '0xabcdef1234567890...'
+  })
+  @IsOptional()
+  @IsString()
+  vcSignature?: string;
+
+  @ApiPropertyOptional({
+    description: 'VC 서명에 사용된 원본 메시지 (nonce 일치를 위해 필요) - JSON string or object',
+    example: { vcType: 'PetIdentityCredential', sub: 'did:ethr:besu:0x...', guardian: '0x...', biometricHash: '0x...', petData: {}, issuedAt: '2024-01-01T00:00:00.000Z', nonce: 'abc123' }
+  })
+  @IsOptional()
+  vcMessage?: any; // FormData로 전송되면 string, 직접 JSON이면 object
+
+  @ApiPropertyOptional({
+    description: 'Guardian Link를 위한 서명된 트랜잭션 (가디언이 Pet을 자신의 프로필에 연결)',
+    example: '0x...'
+  })
+  @IsOptional()
+  @IsString()
+  guardianLinkSignedTx?: string;
 }

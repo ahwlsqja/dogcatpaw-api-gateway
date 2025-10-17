@@ -39,12 +39,14 @@ export class BlockchainService {
   async queueGuardianLink(
     guardianAddress: string,
     petDID: string,
-    action: 'link' | 'unlink'
+    action: 'link' | 'unlink',
+    signedTx?: string  // 프로덕션: 사용자의 서명된 트랜잭션
   ) {
     const job = await this.blockchainQueue.add('guardian-link', {
       guardianAddress,
       petDID,
-      action
+      action,
+      signedTx
     }, {
       priority: 2,
     });
@@ -54,17 +56,32 @@ export class BlockchainService {
   }
 
   /**
+   * Queue guardian-pet link with user signature (production mode)
+   */
+  async queueGuardianLinkWithSignature(
+    guardianAddress: string,
+    petDID: string,
+    signedTx: string
+  ) {
+    return this.queueGuardianLink(guardianAddress, petDID, 'link', signedTx);
+  }
+
+  /**
    * Queue controller transfer synchronization
    */
   async queueTransferSync(
     petDID: string,
     previousGuardian: string,
-    newGuardian: string
+    newGuardian: string,
+    unlinkSignedTx?: string,  // 프로덕션: previousGuardian의 unlink 트랜잭션 서명
+    linkSignedTx?: string      // 프로덕션: newGuardian의 link 트랜잭션 서명
   ) {
     const job = await this.blockchainQueue.add('sync-transfer', {
       petDID,
       previousGuardian,
-      newGuardian
+      newGuardian,
+      unlinkSignedTx,
+      linkSignedTx
     }, {
       priority: 2,
     });

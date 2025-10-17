@@ -119,4 +119,94 @@ export class TokenService {
     await this.redisService.del(vpKey);
     await this.cacheManager.del(vpKey);
   }
+
+  // ==================== VP Verification Caching ====================
+
+  /**
+   * VP 검증 결과 캐싱
+   *
+   * @param token - Access token
+   * @param verificationResult - VP 검증 결과 객체
+   * @param ttl - TTL in seconds (default: 3600 = 1 hour)
+   *
+   * @example
+   * await this.tokenService.cacheVPVerification(token, {
+   *   verified: true,
+   *   holder: 'did:ethr:besu:0x123...',
+   *   vcCount: 3,
+   *   verifiedAt: Date.now()
+   * });
+   */
+  async cacheVPVerification(
+    token: string,
+    verificationResult: {
+      verified: boolean;
+      holder: string;
+      vcCount: number;
+      verifiedAt?: number;
+    },
+    ttl: number = 3600
+  ): Promise<void> {
+    const cacheKey = `vp:verified:${token}`;
+    const data = {
+      ...verificationResult,
+      verifiedAt: verificationResult.verifiedAt || Date.now()
+    };
+
+    // Redis에 영속성 저장 (긴 TTL)
+    await this.redisService.setex(cacheKey, ttl, JSON.stringify(data));
+
+    // 로컬 캐시에도 저장 (짧은 TTL로 메모리 절약)
+    await this.cacheManager.set(cacheKey, data, Math.min(ttl, 300)); // Max 5 minutes
+  }
+
+  /**
+   * 캐시된 VP 검증 결과 조회
+   *
+   * @param token - Access token
+   * @returns Cached verification result or null if not found/expired
+   *
+   * @example
+   * const cached = await this.tokenService.getCachedVPVerification(token);
+   * if (cached && cached.verified) {
+   *   // Use cached result
+   * } else {
+   *   // Perform full verification
+   * }
+   */
+  async getCachedVPVerification(token: string): Promise<{
+    verified: boolean;
+    holder: string;
+    vcCount: number;
+    verifiedAt: number;
+  } | null> {
+    const cacheKey = `vp:verified:${token}`;
+
+    // 1. 로컬 캐시 확인 (빠름)
+    const localCache = await this.cacheManager.get<any>(cacheKey);
+    if (localCache) {
+      return localCache;
+    }
+
+    // 2. Redis 확인 (조금 느림)
+    const redisCache = await this.redisService.get(cacheKey);
+    if (redisCache) {
+      const data = JSON.parse(redisCache);
+      // 로컬 캐시에 저장 (다음 요청 최적화)
+      await this.cacheManager.set(cacheKey, data, 60); // 1 minute
+      return data;
+    }
+
+    return null;
+  }
+
+  /**
+   * VP 검증 결과 캐시 삭제
+   * (로그아웃 시 또는 VP 무효화 시 호출)
+   */
+  async deleteCachedVPVerification(token: string): Promise<void> {
+    const cacheKey = `vp:verified:${token}`;
+    await this.redisService.del(cacheKey);
+    await this.cacheManager.del(cacheKey);
+  }
 }

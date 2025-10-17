@@ -3,6 +3,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { ConfigService } from '@nestjs/config';
+import { envVariableKeys } from 'src/common/const/env.const';
+
+// Import DTOs
+import { VcSyncDto } from './dto/vc-sync.dto';
+import { CreateAdoptionPostDto } from './dto/adoption.dto';
+import { CreateDailyStoryDto, CreateReviewStoryDto } from './dto/story.dto';
+import { WriteCommentDto } from './dto/comment.dto';
+import { CreateChatRoomDto } from './dto/chat.dto';
+import { CreateDonationPostDto, MakeDonationDto, PreparePaymentDto, ApprovePaymentDto } from './dto/donation.dto';
 
 /**
  * Spring API Proxy Service
@@ -17,13 +26,14 @@ export class SpringProxyService {
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
-    this.springBaseUrl = this.configService.get<string>('SPRING_SERVER_URL') || 'http://localhost:8080';
+    this.springBaseUrl = this.configService.get<string>(envVariableKeys.springurl) || 'http://localhost:8080';
   }
 
   /**
-   * Generic proxy method for Spring API calls
+   * 프록시 메서드
+   * Public으로 변경하여 ChatService에서도 사용 가능
    */
-  private async proxyToSpring(
+  async proxyToSpring(
     method: 'get' | 'post' | 'put' | 'delete',
     endpoint: string,
     data?: any,
@@ -35,7 +45,7 @@ export class SpringProxyService {
         headers: {
           'Content-Type': 'application/json',
           'X-API-Gateway': 'dogcatpaw',
-          ...headers,
+          'X-Wallet-Address': headers.walletAddress,
         },
         params: queryParams
       };
@@ -71,7 +81,7 @@ export class SpringProxyService {
   }
 
   // ==================== VC Sync API ====================
-  async syncVc(data: any) {
+  async syncVc(data: VcSyncDto) {
     return this.proxyToSpring('post', '/api/vc/sync', data);
   }
 
@@ -88,12 +98,12 @@ export class SpringProxyService {
     return this.proxyToSpring('get', '/api/adoption/home');
   }
 
-  async createAdoptionPost(data: any, headers?: any) {
+  async createAdoptionPost(data: CreateAdoptionPostDto, headers?: any) {
     return this.proxyToSpring('post', '/api/adoption/post', data, undefined, headers);
   }
 
   // ==================== Daily Story API ====================
-  async createDailyStory(data: any, headers?: any) {
+  async createDailyStory(data: CreateDailyStoryDto, headers?: any) {
     return this.proxyToSpring('post', '/api/story/daily', data, undefined, headers);
   }
 
@@ -110,7 +120,7 @@ export class SpringProxyService {
   }
 
   // ==================== Review Story API ====================
-  async createReviewStory(data: any, headers?: any) {
+  async createReviewStory(data: CreateReviewStoryDto, headers?: any) {
     return this.proxyToSpring('post', '/api/story/review', data, undefined, headers);
   }
 
@@ -136,12 +146,12 @@ export class SpringProxyService {
     return this.proxyToSpring('get', '/api/comment/', undefined, queryParams);
   }
 
-  async writeComment(data: any, headers?: any) {
+  async writeComment(data: WriteCommentDto, headers?: any) {
     return this.proxyToSpring('post', '/api/comment/', data, undefined, headers);
   }
 
   // ==================== Chat API ====================
-  async createChatRoom(data: any, headers?: any) {
+  async createChatRoom(data: CreateChatRoomDto, headers?: any) {
     return this.proxyToSpring('post', '/api/chat/room/create', data, undefined, headers);
   }
 
@@ -162,7 +172,7 @@ export class SpringProxyService {
   }
 
   // ==================== Donation API ====================
-  async createDonationPost(data: any, headers?: any) {
+  async createDonationPost(data: CreateDonationPostDto, headers?: any) {
     return this.proxyToSpring('post', '/api/donation/posts', data, undefined, headers);
   }
 
@@ -178,7 +188,7 @@ export class SpringProxyService {
     return this.proxyToSpring('get', '/api/donation/', undefined, queryParams);
   }
 
-  async makeDonation(data: any, headers?: any) {
+  async makeDonation(data: MakeDonationDto, headers?: any) {
     return this.proxyToSpring('post', '/api/donations', data, undefined, headers);
   }
 
@@ -191,11 +201,11 @@ export class SpringProxyService {
   }
 
   // ==================== Payment API ====================
-  async preparePayment(data: any, headers?: any) {
+  async preparePayment(data: PreparePaymentDto, headers?: any) {
     return this.proxyToSpring('post', '/api/payment/prepare', data, undefined, headers);
   }
 
-  async approvePayment(data: any, headers?: any) {
+  async approvePayment(data: ApprovePaymentDto, headers?: any) {
     return this.proxyToSpring('post', '/api/payment/approve', data, undefined, headers);
   }
 }

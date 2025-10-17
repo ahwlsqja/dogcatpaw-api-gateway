@@ -7,6 +7,8 @@ import { DIDAuthGuard } from './guard/did-auth-guard';
 import { VCDto } from 'src/vc/dto/grpc-vc-req.dto';
 import { Public } from './decorator/public.decorator';
 import { TokenService } from './services/token.service';
+import { ConfigService } from '@nestjs/config';
+import { envVariableKeys } from 'src/common/const/env.const';
 
 @ApiTags('Authentication')
 @Controller('api/auth')
@@ -15,13 +17,13 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly vcProxyService: VcProxyService,
     private readonly tokenService: TokenService,
+    private readonly configService: ConfigService
   ) {}
 
   /**
    * Step 1: Challenge 요청 (로그인 시작)
    * API Gateway 인증을 위한 challenge-response 방식
    */
-  @Public()
   @Post('challenge')
   @ApiOperation({ summary: '로그인하기 위한 서명' })
   async getChallenge(@Body() dto: { walletAddress: string }) {
@@ -39,7 +41,6 @@ export class AuthController {
    * Step 2: 서명 검증 및 로그인 (API Gateway 인증)
    * API Gateway 세션 생성 + VP 자동 생성 (One Session = One VP)
    */
-  @Public()
   @Post('login')
   @ApiOperation({ summary: 'Login with wallet signature and auto-create VP' })
   async login(
@@ -61,10 +62,20 @@ export class AuthController {
         throw new HttpException('Invalid signature', HttpStatus.UNAUTHORIZED);
       }
 
-      // 2. 가디언 정보 가져오기 async로
+      // 2. 가디언 정보 가져오기 async로 (VC Service 사용 가능 시)
       const guardianInfo = await this.vcProxyService.getGuardianInfo({
         walletAddress: dto.walletAddress
-      }).catch(() => null);
+      }).catch((error) => {
+        // VC Service 에러 시 null 반환 (로그인은 계속 진행)
+        console.log('Guardian info fetch failed, continuing without guardian data:', error.message);
+        return null;
+      });
+
+      // VC Service 에러 체크: 실제 서비스 에러인 경우만 예외 발생
+      // '가디언정보등록X'는 정상 케이스 (아직 등록하지 않은 사용자)
+      if(guardianInfo && guardianInfo.error && guardianInfo.error !== '가디언정보등록X') {
+        throw new Error(`Server Error: VC Service 에러 - ${guardianInfo.error}`)
+      }
 
       // 3. 모든 VC에 대한 하나의 VP 생성
       const vcsResponse = await this.vcProxyService.getVCsByWallet({
@@ -79,12 +90,31 @@ export class AuthController {
         vcCount: vcs.length,
       });
 
+      if(vcs.length === 0) {
+        const refreshToken = await this.authService.createRefreshToken(dto.walletAddress);
+
+        await this.tokenService.setVPForToken(accessToken, "EMPTY", 86400); // 24 hours
+
+        return {
+        success: true,
+        accessToken,
+        refreshToken,
+        vpJwt: "EMPTY",
+        profile: {
+          walletAddress: dto.walletAddress,
+          guardianInfo,
+          vcCount: vcs.length,
+        },
+        message: '로그인이 성공했습니다!!',
+      };
+      }
+
       // 5. VP 생성 (서버사이드 - 이미 서명된 challenge 재사용)
       // VP 조립
       const vpSigningData = this.authService.prepareVPSigning({
         holder: dto.walletAddress,
         verifiableCredentials: vcs.map((vc: any) => vc.vcJwt),
-        audience: process.env.SPRING_SERVER_URL || 'http://localhost:8080',
+        audience: this.configService.get<string>(envVariableKeys.springurl) || 'http://localhost:8080', // audience 이 VP가 누구를 위해 만들어졌는가? 를 의미함
         purpose: 'authentication',
       });
 
@@ -185,9 +215,10 @@ export class AuthController {
     const token = req.headers.authorization?.replace('Bearer ', '');
 
     if (token) {
-      // Revoke current session (token + VP)
+      // Revoke current session (token + VP + VP verification cache)
       await this.tokenService.blockToken(token);
       await this.tokenService.deleteVPForToken(token);
+      await this.tokenService.deleteCachedVPVerification(token); // 캐시도 삭제
     }
 
     return {

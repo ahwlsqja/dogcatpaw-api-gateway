@@ -24,9 +24,9 @@ export class GetGuardianInfoResponseDto{
   name: string;
   isEmailVerified: boolean;
   isOnChainRegistered: boolean;
-  errer?: string;
+  error?: string;
 }
-
+  
 export class GetGuardianInfoRequestDto{
   walletAddress: string;
 }

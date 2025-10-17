@@ -47,13 +47,32 @@ export class SpringAuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid token');
     }
 
-    // 3. VP 검증 (One Session = One VP)
+    // 3. VP 검증 (One Session = One VP) - with caching
     // VP verification IS the session verification
     const vpJwt = await this.tokenService.getVPForToken(token);
 
-    if (vpJwt) {
+    if (vpJwt && vpJwt != "EMPTY") {
       try {
-        // Verify VP using AuthService
+        // 3-1. 캐시된 검증 결과 확인 (빠름!) 
+        const cachedVerification = await this.tokenService.getCachedVPVerification(token);
+
+        if (cachedVerification && cachedVerification.verified) {
+          // 즉시 반환 (블록체인 쿼리 생략)
+          this.logger.debug(`VP cache hit for ${request.user.address} (verified at ${new Date(cachedVerification.verifiedAt).toISOString()})`);
+
+          request.user = {
+            ...request.user,
+            vpVerified: true,
+            vpHolder: cachedVerification.holder,
+            vcCount: cachedVerification.vcCount,
+          };
+
+          return true;
+        }
+
+        // 3-2. Cache miss - Full verification 수행 (느림)
+        this.logger.debug(`VP cache miss for ${request.user.address} - performing full verification`);
+
         const vpVerification = await this.authService.verifyPresentation(vpJwt);
 
         if (!vpVerification || !vpVerification.verified) {
@@ -69,6 +88,14 @@ export class SpringAuthGuard implements CanActivate {
         }
 
         this.logger.log(`VP verified successfully for ${request.user.address}`);
+
+        // 3-3. 검증 결과 캐싱 (다음 요청 최적화)
+        await this.tokenService.cacheVPVerification(token, {
+          verified: true,
+          holder: vpVerification.holder,
+          vcCount: vpVerification.verifiableCredential?.length || 0,
+          verifiedAt: Date.now()
+        }, 3600); // 1 hour TTL
 
         // Attach VP verification result to request
         request.user = {

@@ -56,13 +56,20 @@ export class VcService {
   async createVCWithSignature(params: CreateVCParams) {
     const { guardianAddress, signature, message, petDID, petData } = params;
 
-    // 서명 검증
+    // 서명 검증 (signMessage로 서명된 경우)
     const messageHash = ethers.keccak256(
       ethers.toUtf8Bytes(JSON.stringify(message))
     );
-    const recoveredAddress = ethers.recoverAddress(messageHash, signature);
+    const recoveredAddress = ethers.verifyMessage(messageHash, signature);
 
     if (recoveredAddress.toLowerCase() !== guardianAddress.toLowerCase()) {
+      console.error('❌ VC Signature Verification Failed:');
+      console.error(`  Expected: ${guardianAddress}`);
+      console.error(`  Recovered: ${recoveredAddress}`);
+      console.error(`  Message Hash: ${messageHash}`);
+      console.error(`  Message petDID: ${message.sub}`);
+      console.error(`  Actual petDID: ${petDID}`);
+      console.error(`  Signature: ${signature.substring(0, 20)}...`);
       return { success: false, error: 'Invalid signature' };
     }
 
@@ -181,11 +188,11 @@ export class VcService {
   }) {
     const { newGuardian, signature, message, petDID, petData } = params;
 
-    // 서명 검증
+    // 서명 검증 (signMessage로 서명된 경우)
     const messageHash = ethers.keccak256(
       ethers.toUtf8Bytes(JSON.stringify(message))
     );
-    const recoveredAddress = ethers.recoverAddress(messageHash, signature);
+    const recoveredAddress = ethers.verifyMessage(messageHash, signature);
 
     if (recoveredAddress.toLowerCase() !== newGuardian.toLowerCase()) {
       return { success: false, error: 'Invalid signature' };

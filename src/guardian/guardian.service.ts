@@ -69,7 +69,7 @@ export class GuardianService {
    * - Transaction hashes (66 chars) - verifies they exist on-chain
    */
   async sendSignedTransaction(signedTx: string) {
-    // Validate basic format
+    // 형식 검증
     if (!signedTx || !signedTx.startsWith('0x')) {
       throw new Error('Invalid signed transaction: must start with 0x');
     }
@@ -77,7 +77,7 @@ export class GuardianService {
     // Check if this is a transaction hash (66 chars) or raw signed tx (200+ chars)
     if (signedTx.length === 66) {
       // This is a transaction hash - the transaction was already broadcast by the wallet
-      console.log(`🔍 Received transaction hash (wallet already broadcast): ${signedTx}`);
+      console.log(`Received transaction hash (wallet already broadcast): ${signedTx}`);
 
       try {
         // Wait for the transaction to be mined
@@ -89,11 +89,11 @@ export class GuardianService {
 
         // ⚠️ IMPORTANT: Check if transaction was successful (status = 1) or reverted (status = 0)
         if (receipt.status === 0) {
-          console.error(`❌ Transaction reverted - Block: ${receipt.blockNumber}, Hash: ${signedTx}`);
+          console.error(`Transaction reverted - Block: ${receipt.blockNumber}, Hash: ${signedTx}`);
           throw new Error('Transaction was mined but reverted on-chain');
         }
 
-        console.log(`✅ Transaction confirmed - Block: ${receipt.blockNumber}`);
+        console.log(`Transaction confirmed - Block: ${receipt.blockNumber}`);
 
         return {
           success: true,
@@ -123,7 +123,7 @@ export class GuardianService {
 
     // Check if transaction was successful
     if (receipt.status === 0) {
-      console.error(`❌ Transaction reverted - Block: ${receipt.blockNumber}, Hash: ${tx.hash}`);
+      console.error(`Transaction reverted - Block: ${receipt.blockNumber}, Hash: ${tx.hash}`);
       throw new Error('Transaction was mined but reverted on-chain');
     }
 
@@ -151,25 +151,7 @@ export class GuardianService {
 
     // 프로덕션 모드 + 트랜잭션 해시가 있는 경우 (프론트엔드가 이미 전송함)
     if (!isDevelopment && signedTx) {
-      // signedTx는 실제로 txHash (프론트엔드가 이미 전송한 트랜잭션의 해시)
-      // 트랜잭션이 블록체인에 포함될 때까지 기다림
-      const receipt = await this.provider.waitForTransaction(signedTx);
-
-      if (!receipt) {
-        throw new Error('Transaction not found or failed');
-      }
-
-      // Check transaction status - 0 means failed/reverted, 1 means success
-      if (receipt.status === 0) {
-        throw new Error('Transaction failed/reverted on blockchain');
-      }
-
-      return {
-        success: true,
-        txHash: signedTx,
-        blockNumber: receipt.blockNumber,
-        gasUsed: receipt.gasUsed.toString(),
-      };
+      return this.sendSignedTransaction(signedTx)
     }
 
     // 프로덕션 모드 + 트랜잭션 해시가 없는 경우: 트랜잭션 데이터만 반환
@@ -281,7 +263,7 @@ export class GuardianService {
     const isDevelopment = process.env.NODE_ENV !== 'production';
 
     if (!isDevelopment && signedTx) {
-      return this.sendSignedTransaction(signedTx);
+      return this.sendSignedTransaction(signedTx)
     }
 
     if (!isDevelopment && !signedTx) {
@@ -337,22 +319,27 @@ export class GuardianService {
 
   /**
    * 펫 연결
+   * IMPORTANT: linkPet() requires msg.sender to be the guardian (not admin)
+   * So in production, we MUST have user's signature
    */
   async linkPet(guardianAddress: string, petDID: string, signedTx?: string) {
     const isDevelopment = process.env.NODE_ENV !== 'production';
 
+    // 프로덕션 + signedTx 있음: 서명된 트랜잭션 전송
     if (!isDevelopment && signedTx) {
       return this.sendSignedTransaction(signedTx);
     }
 
+    // 프로덕션 + signedTx 없음: ERROR - cannot use admin signer because contract requires msg.sender = guardian
     if (!isDevelopment && !signedTx) {
-      return {
-        requiresSignature: true,
-        transactionData: await this.prepareLinkPetTx(guardianAddress, petDID),
-        message: 'Please sign this transaction with your wallet'
-      };
+      console.error(`❌ Production mode: Guardian Link requires user signature (admin cannot call linkPet on behalf of guardian)`);
+      throw new Error(
+        'Guardian Link requires user signature. ' +
+        'Frontend must: 1) extract feature vector, 2) calculate petDID, 3) sign linkPet transaction'
+      );
     }
 
+    // 개발 모드 + adminSigner 있음: adminSigner 사용 (for testing only)
     if (isDevelopment && this.adminSigner) {
       const contractWithSigner = this.guardianContract.connect(this.adminSigner);
       const tx = await contractWithSigner['linkPet'](petDID);
@@ -392,11 +379,27 @@ export class GuardianService {
   async unlinkPet(guardianAddress: string, petDID: string, signedTx?: string) {
     const isDevelopment = process.env.NODE_ENV !== 'production';
 
+    // 프로덕션 + signedTx 있음: 서명된 트랜잭션 전송
     if (!isDevelopment && signedTx) {
       return this.sendSignedTransaction(signedTx);
     }
 
-    if (!isDevelopment && !signedTx) {
+    // 프로덕션 + signedTx 없음 + adminSigner 있음: adminSigner로 대체 (백그라운드 작업용)
+    // GuardianRegistry는 보조 매핑이므로, 서버가 대신 처리해도 보안상 문제 없음
+    if (!isDevelopment && !signedTx && this.adminSigner) {
+      console.log(`⚠️ Production mode: Using admin signer for GuardianRegistry.unlinkPet (background sync)`);
+      const contractWithSigner = this.guardianContract.connect(this.adminSigner);
+      const tx = await contractWithSigner['unlinkPet'](petDID);
+      const receipt = await tx.wait();
+      return {
+        success: true,
+        txHash: tx.hash,
+        blockNumber: receipt.blockNumber
+      };
+    }
+
+    // 프로덕션 + signedTx 없음 + adminSigner 없음: 트랜잭션 데이터 반환 (수동 서명 필요)
+    if (!isDevelopment && !signedTx && !this.adminSigner) {
       return {
         requiresSignature: true,
         transactionData: await this.prepareUnlinkPetTx(guardianAddress, petDID),
@@ -404,6 +407,7 @@ export class GuardianService {
       };
     }
 
+    // 개발 모드 + adminSigner 있음: adminSigner 사용
     if (isDevelopment && this.adminSigner) {
       const contractWithSigner = this.guardianContract.connect(this.adminSigner);
       const tx = await contractWithSigner['unlinkPet'](petDID);

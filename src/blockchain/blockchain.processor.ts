@@ -142,16 +142,16 @@ export class BlockchainProcessor {
   @Process('guardian-link')
   async handleGuardianLink(job: Job<GuardianLinkJob>) {
     await this.initServices();
-    const { guardianAddress, petDID, action } = job.data;
+    const { guardianAddress, petDID, action, signedTx } = job.data;
 
     try {
       const startTime = Date.now();
 
       if (action === 'link') {
-        await this.guardianService.linkPet(guardianAddress, petDID);
+        await this.guardianService.linkPet(guardianAddress, petDID, signedTx);
         this.logger.debug(`Pet ${petDID} linked to guardian ${guardianAddress}`);
       } else {
-        await this.guardianService.unlinkPet(guardianAddress, petDID);
+        await this.guardianService.unlinkPet(guardianAddress, petDID, signedTx);
         this.logger.debug(`Pet ${petDID} unlinked from guardian ${guardianAddress}`);
       }
 
@@ -177,21 +177,21 @@ export class BlockchainProcessor {
   @Process('sync-transfer')
   async handleControllerTransferSync(job: Job<ControllerTransferJob>) {
     await this.initServices();
-    const { petDID, previousGuardian, newGuardian } = job.data;
+    const { petDID, previousGuardian, newGuardian, unlinkSignedTx, linkSignedTx } = job.data;
 
     try {
       const startTime = Date.now();
 
       // Unlink from previous guardian
       try {
-        await this.guardianService.unlinkPet(previousGuardian, petDID);
+        await this.guardianService.unlinkPet(previousGuardian, petDID, unlinkSignedTx);
         this.logger.debug(`Pet ${petDID} unlinked from previous guardian ${previousGuardian}`);
       } catch (error) {
         this.logger.warn(`Failed to unlink from previous guardian: ${error.message}`);
       }
 
       // Link to new guardian
-      await this.guardianService.linkPet(newGuardian, petDID);
+      await this.guardianService.linkPet(newGuardian, petDID, linkSignedTx);
       this.logger.debug(`Pet ${petDID} linked to new guardian ${newGuardian}`);
 
       const duration = Date.now() - startTime;

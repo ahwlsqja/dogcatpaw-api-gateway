@@ -42,21 +42,27 @@ export class PetController {
 
 
   /**
-   * PetDID 등록 (보호자 인증 필요)
+   * Step 2: 펫 등록 준비 - Feature vector 추출 및 서명 데이터 준비 (블록체인 등록 전)
+   *
+   * 플로우:
+   * 1. Nose image → Feature vector 추출 → petDID 계산
+   * 2. Pet 등록 tx data + Guardian Link tx data + VC signing data 반환
+   * 3. 클라이언트가 세 개 서명
+   * 4. POST /pet/register로 서명 제출 → 백그라운드 처리
    */
-  @Post('register')
+  @Post('prepare-registration')
   @UseGuards(DIDAuthGuard)
   @UseInterceptors(FileInterceptor('noseImage'))
-  @ApiOperation({ summary: 'PetDID 등록 - 보호자만 가능 (비문 이미지 필수)' })
+  @ApiOperation({ summary: '펫 등록 준비 - 서명 데이터 생성 (블록체인 등록 전)' })
   @ApiConsumes('multipart/form-data')
-  async registerPet(
+  async prepareRegistration(
     @Req() req: Request,
     @Body() dto: CreatePetDto,
     @UploadedFile() noseImage?: Express.Multer.File
   ) {
     const guardianAddress = req.user?.address;
 
-    // 1. 보호자 등록 여부 확인 (Guardian Registry 또는 VC Service)
+    // 1. 보호자 등록 여부 확인
     const guardianInfo = await this.vcProxyService.updateGuardianInfo({
       walletAddress: guardianAddress,
     }).catch(() => null);
@@ -68,116 +74,290 @@ export class PetController {
       };
     }
 
-    // 2. 비문 벡터 추출 (ML 서버 통해)
-    let featureVector: number[];
-    let featureVectorHash: string;
-
-    if (noseImage) {
-      // 이미지 파일 유효성 검증
-      const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png'];
-      if (!allowedMimeTypes.includes(noseImage.mimetype)) {
-        throw new BadRequestException('Invalid file type. Only JPEG and PNG are allowed');
-      }
-
-      const maxSize = 10 * 1024 * 1024; // 10MB
-      if (noseImage.size > maxSize) {
-        throw new BadRequestException('File size exceeds 10MB limit');
-      }
-
-      try {
-        // ML 서버에 비문 벡터 추출 요청
-        const imageFormat = noseImage.mimetype.split('/')[1];
-        const mlResult = await this.noseEmbedderService.extractNoseVector(
-          noseImage.buffer,
-          imageFormat
-        );
-
-        if (!mlResult.success) {
-          throw new BadRequestException(mlResult.errorMessage || 'Failed to extract nose vector');
-        }
-
-        featureVector = mlResult.vector;
-        // 벡터를 해시로 변환 (ONE-WAY: Cannot decode hash back to vector!)
-        // Hash is for blockchain integrity, actual vector must be stored elsewhere (VC)
-        featureVectorHash = ethers.keccak256(
-          ethers.toUtf8Bytes(JSON.stringify(featureVector))
-        );
-      } catch (error) {
-        console.error('ML 서버 비문 추출 실패:', error);
-        throw new BadRequestException('비문 추출에 실패했습니다. 이미지를 확인해주세요.');
-      }
-    } else {
+    // 2. 비문 벡터 추출
+    if (!noseImage) {
       throw new BadRequestException('비문 이미지가 필요합니다.');
     }
 
-    // 3. PetDID 생성 (did:pet:ethereum:{chainId}:{petId})
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+    if (!allowedMimeTypes.includes(noseImage.mimetype)) {
+      throw new BadRequestException('Invalid file type. Only JPEG and PNG are allowed');
+    }
+
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (noseImage.size > maxSize) {
+      throw new BadRequestException('File size exceeds 10MB limit');
+    }
+
+    let featureVector: number[];
+    let featureVectorHash: string;
+
+    try {
+      const imageFormat = noseImage.mimetype.split('/')[1];
+      const mlResult = await this.noseEmbedderService.extractNoseVector(
+        noseImage.buffer,
+        imageFormat
+      );
+
+      if (!mlResult.success) {
+        throw new BadRequestException(mlResult.errorMessage || 'Failed to extract nose vector');
+      }
+
+      featureVector = mlResult.vector;
+      featureVectorHash = ethers.keccak256(
+        ethers.toUtf8Bytes(JSON.stringify(featureVector))
+      );
+    } catch (error) {
+      console.error('ML 서버 비문 추출 실패:', error);
+      throw new BadRequestException('비문 추출에 실패했습니다. 이미지를 확인해주세요.');
+    }
+
+    // 3. PetDID 생성
     const didMethod = process.env.DIDMETHOD || 'ethr';
     const didNetwork = process.env.DIDNETWORK || 'besu';
     const petDID = `did:${didMethod}:${didNetwork}:${featureVectorHash}`;
 
-    // 4. 블록체인에 PetDID 등록
-    const txResult = await this.petService.registerPetDID(
+    // 4. Pet 등록 트랜잭션 데이터 준비
+    const petTxData = await this.petService.prepareRegisterPetDIDTx(
       petDID,
       featureVectorHash,
       dto.modelServerReference || 'model-server-ref',
       dto.sampleCount || 1,
       dto.species,
-      '0', // metadataURI는 VC Service ID 사용
-      dto.signedTx
+      '0' // metadataURI
     );
 
-    // 5. 트랜잭션 성공 - Pet 등록 완료
-    if (txResult.success) {
-      // s3에 벡터 데이터 저장
-      let s3VectorUrl = null;
-      let s3VectorKey = null;
+    // 5. Guardian Link 트랜잭션 데이터 준비
+    const guardianLinkTxData = await this.guardianService.prepareLinkPetTx(
+      guardianAddress,
+      petDID
+    );
 
-      try{
-        const s3Result = await this.commonService.savePetFeatureVector(featureVector,petDID)
-        s3VectorUrl = s3Result.url;
-        s3VectorKey = s3Result.key
-        console.log(`feature vector saved to NCP Object Storage for ${petDID}: ${s3VectorKey}`)
-      } catch (error) {
-        console.log(`업로드에 실패했습니다!`)
-      }
+    // 6. VC 서명 데이터 준비
+    const petData = {
+      petName: dto.petName,
+      breed: dto.breed?.toString(),
+      old: dto.old,
+      weight: dto.weight,
+      gender: dto.gender?.toString(),
+      color: dto.color,
+      feature: dto.feature,
+      neutered: dto.neutered,
+      species: dto.species,
+    };
 
-      // 5b. 펫을 가디언에 매핑 - Queue for async processing
-      const linkJobId = await this.blockchainService.queueGuardianLink(
-        guardianAddress,
-        petDID,
-        'link'
-      );
-      console.log(`📝 Queued guardian link - Job ID: ${linkJobId}`);
+    const vcSigningData = this.vcService.prepareVCSigning({
+      guardianAddress,
+      petDID,
+      biometricHash: featureVectorHash,
+      petData,
+    });
 
-      // 5c. Queue pet registration to Spring server (async)
-      const petData = {
-        petName: dto.petName,
-        breed: dto.breed?.toString(), // Convert Enum to string
-        old: dto.old,
-        weight: dto.weight,
-        gender: dto.gender?.toString(), // Convert Enum to string
-        color: dto.color,
-        feature: dto.feature,
-        neutered: dto.neutered,
-        species: dto.species,
-      };
+    return {
+      success: true,
+      petDID,
+      message: 'Sign all three transactions and submit to POST /pet/register',
+      petRegistrationTxData: {
+        to: petTxData.to,
+        data: petTxData.data,
+        from: petTxData.from,
+        gasLimit: petTxData.gasLimit,
+        gasPrice: petTxData.gasPrice,
+        value: petTxData.value,
+      },
+      guardianLinkTxData: {
+        to: guardianLinkTxData.to,
+        data: guardianLinkTxData.data,
+        from: guardianLinkTxData.from,
+        gasLimit: guardianLinkTxData.gasLimit,
+        gasPrice: guardianLinkTxData.gasPrice,
+        value: guardianLinkTxData.value,
+      },
+      vcSigningData: {
+        message: vcSigningData.message,
+        messageHash: vcSigningData.messageHash,
+      },
+      nextStep: 'Sign petRegistrationTx, guardianLinkTx, and vcMessageHash, then call POST /pet/register with all signatures',
+    };
+  }
 
-      const springJobId = await this.springService.queuePetRegistration(
-        guardianAddress,
-        petDID,
-        petData
-      );
-      console.log(`Queued Spring pet registration - Job ID: ${springJobId}`);
+  /**
+   * Step 3: PetDID 등록 - 서명 제출 및 백그라운드 처리
+   *
+   * 플로우:
+   * 1. Nose image 재추출 → petDID 검증
+   * 2. Pet 등록 signedTx → 블록체인 즉시 전송
+   * 3. Guardian Link signedTx → 큐 등록
+   * 4. VC signature → 큐 등록
+   */
+  @Post('register')
+  @UseGuards(DIDAuthGuard)
+  @UseInterceptors(FileInterceptor('noseImage'))
+  @ApiOperation({ summary: 'PetDID 등록 - 서명 제출 및 백그라운드 처리' })
+  @ApiConsumes('multipart/form-data')
+  async registerPet(
+    @Req() req: Request,
+    @Body() dto: CreatePetDto,
+    @UploadedFile() noseImage?: Express.Multer.File
+  ) {
+    const guardianAddress = req.user?.address;
 
+    // 1. 보호자 등록 여부 확인
+    const guardianInfo = await this.vcProxyService.updateGuardianInfo({
+      walletAddress: guardianAddress,
+    }).catch(() => null);
+
+    if (!guardianInfo) {
       return {
-        success: true,
-        petDID,
-        message: 'Pet registered successfully. IMPORTANT: Save featureVector and pass it to POST /vc/prepare-vc-signing',
-        springJobId,
+        success: false,
+        error: '가디언이 등록되지 않았습니다. 먼저 등록해주세요!'
       };
     }
 
-    return txResult;
+    // 2. 비문 벡터 재추출 (검증용)
+    if (!noseImage) {
+      throw new BadRequestException('비문 이미지가 필요합니다.');
+    }
+
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+    if (!allowedMimeTypes.includes(noseImage.mimetype)) {
+      throw new BadRequestException('Invalid file type. Only JPEG and PNG are allowed');
+    }
+
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (noseImage.size > maxSize) {
+      throw new BadRequestException('File size exceeds 10MB limit');
+    }
+
+    let featureVector: number[];
+    let featureVectorHash: string;
+
+    try {
+      const imageFormat = noseImage.mimetype.split('/')[1];
+      const mlResult = await this.noseEmbedderService.extractNoseVector(
+        noseImage.buffer,
+        imageFormat
+      );
+
+      if (!mlResult.success) {
+        throw new BadRequestException(mlResult.errorMessage || 'Failed to extract nose vector');
+      }
+
+      featureVector = mlResult.vector;
+      featureVectorHash = ethers.keccak256(
+        ethers.toUtf8Bytes(JSON.stringify(featureVector))
+      );
+    } catch (error) {
+      console.error('ML 서버 비문 추출 실패:', error);
+      throw new BadRequestException('비문 추출에 실패했습니다. 이미지를 확인해주세요.');
+    }
+
+    // 3. PetDID 재계산 및 검증
+    const didMethod = process.env.DIDMETHOD || 'ethr';
+    const didNetwork = process.env.DIDNETWORK || 'besu';
+    const petDID = `did:${didMethod}:${didNetwork}:${featureVectorHash}`;
+
+    console.log(`✅ PetDID verified: ${petDID}`);
+
+    // 4. Pet 등록 서명이 없으면 에러
+    if (!dto.signedTx) {
+      throw new BadRequestException('Pet registration signedTx is required. Call POST /pet/prepare-registration first.');
+    }
+
+    // 5. Pet 등록 (블록체인에 즉시 전송)
+    const txResult = await this.petService.sendSignedTransaction(dto.signedTx);
+
+    if (!txResult.success) {
+      return {
+        success: false,
+        error: 'Pet registration failed',
+        details: txResult
+      };
+    }
+
+    console.log(`✅ Pet registered on blockchain: ${petDID} - TxHash: ${txResult.txHash}`);
+
+    // 6. S3에 벡터 데이터 저장
+    try {
+      const s3Result = await this.commonService.savePetFeatureVector(featureVector, petDID);
+      console.log(`✅ Feature vector saved to NCP Object Storage: ${s3Result.key}`);
+    } catch (error) {
+      console.error(`❌ Failed to upload feature vector to S3:`, error);
+    }
+
+    // 7. Pet 데이터 준비
+    const petData = {
+      petName: dto.petName,
+      breed: dto.breed?.toString(),
+      old: dto.old,
+      weight: dto.weight,
+      gender: dto.gender?.toString(),
+      color: dto.color,
+      feature: dto.feature,
+      neutered: dto.neutered,
+      species: dto.species,
+    };
+
+    // 8. Guardian Link 큐 등록
+    let guardianLinkJobId = null;
+    if (dto.guardianLinkSignedTx) {
+      guardianLinkJobId = await this.blockchainService.queueGuardianLinkWithSignature(
+        guardianAddress,
+        petDID,
+        dto.guardianLinkSignedTx
+      );
+      console.log(`✅ Queued Guardian Link - Job ID: ${guardianLinkJobId}`);
+    } else {
+      console.log(`⚠️ No Guardian Link signature - skipping Guardian Link`);
+    }
+
+    // 9. VC 생성 큐 등록
+    let vcJobId = null;
+    if (dto.vcSignature && dto.vcMessage) {
+      // FormData로 전송된 vcMessage는 문자열이므로 파싱 필요
+      let parsedVcMessage = dto.vcMessage;
+      if (typeof dto.vcMessage === 'string') {
+        try {
+          parsedVcMessage = JSON.parse(dto.vcMessage);
+        } catch (error) {
+          console.error('❌ Failed to parse vcMessage:', error);
+          throw new BadRequestException('Invalid vcMessage format');
+        }
+      }
+
+      vcJobId = await this.vcQueueService.queuePetVCCreation(
+        petDID,
+        guardianAddress,
+        featureVectorHash,
+        petData,
+        dto.vcSignature,
+        parsedVcMessage
+      );
+      console.log(`✅ Queued VC creation - Job ID: ${vcJobId}`);
+    } else {
+      console.log(`⚠️ No VC signature - Pet registered without VC`);
+    }
+
+    // 10. Spring 서버 동기화 큐 등록
+    const springJobId = await this.springService.queuePetRegistration(
+      guardianAddress,
+      petDID,
+      petData
+    );
+    console.log(`✅ Queued Spring sync - Job ID: ${springJobId}`);
+
+    return {
+      success: true,
+      petDID,
+      txHash: txResult.txHash,
+      blockNumber: txResult.blockNumber,
+      message: 'Pet registered successfully! Background jobs queued.',
+      jobs: {
+        guardianLink: guardianLinkJobId || 'not_submitted',
+        vc: vcJobId || 'not_submitted',
+        spring: springJobId,
+      },
+    };
   }
 
   /**
@@ -329,13 +509,7 @@ export class PetController {
   async acceptTransfer(
     @Param('petDID') petDID: string,
     @Req() req: Request,
-    @Body() dto: {
-      signature: string;
-      message: any;
-      petData: PetDataDto;
-      verificationProof: any; // 비문 검증 증명
-      signedTx?: string;
-    }
+    @Body() dto: AcceptTransferDto
   ) {
     const newGuardian = req.user?.address;
 
@@ -377,12 +551,13 @@ export class PetController {
       return txResult;
     }
 
-    // 4. Sync GuardianRegistry - Queue for async processing
+    // 4. Sync GuardianRegistry - Queue for async processing (서버가 adminSigner로 자동 처리)
     const previousGuardian = dto.message.previousGuardian;
     const transferSyncJobId = await this.blockchainService.queueTransferSync(
       petDID,
       previousGuardian,
       newGuardian
+      // GuardianRegistry는 서버가 adminSigner로 자동 처리 (보조 매핑이므로 보안상 문제 없음)
     );
     console.log(`Queued guardian transfer sync - Job ID: ${transferSyncJobId}`);
 
@@ -390,7 +565,7 @@ export class PetController {
     // 블록체인 성공 후 즉시 응답, VC는 백그라운드에서 BullMQ로 처리
     const vcTransferJobId = await this.vcQueueService.queueVCTransfer(
       petDID,
-      newGuardian,
+      newGuardian,  
       previousGuardian,
       dto.signature,
       dto.message,
@@ -409,38 +584,8 @@ export class PetController {
   }
 
   /**
-   * 비문 검증
-   */
-  @Post('verify-biometric/:petDID')
-  @ApiOperation({ summary: '비문 검증' })
-  async verifyBiometric(
-    @Param('petDID') petDID: string,
-    @Body() dto: {
-      similarity: number;
-      purpose: number;
-      modelServerSignature: string;
-    }
-  ) {
-    const isValid = await this.petService.verifyBiometric(
-      petDID,
-      dto.similarity,
-      dto.purpose,
-      dto.modelServerSignature
-    );
-
-    return {
-      success: true,
-      isValid,
-      petDID,
-      similarity: dto.similarity,
-      purpose: dto.purpose
-    };
-  }
-
-  /**
    * 펫 소유권 이전 히스토리 조회 (uses blockchain-indexer service)
    */
-  @Public()
   @Get('history/:petDID')
   @ApiOperation({ summary: '펫 소유권 이전 히스토리 (입양 기록) 조회' })
   async getPetControllerHistory(@Param('petDID') petDID: string) {

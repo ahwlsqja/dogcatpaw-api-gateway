@@ -25,6 +25,8 @@ export class VcProcessor {
       this.logger.log(`Processing job ${job.id} - Processing VC transfer for pet: ${data.petDID}`);
     } else if (job.name === 'sync-guardian-info') {
       this.logger.log(`Processing job ${job.id} - Syncing guardian info for: ${job.data.walletAddress}`);
+    } else if (job.name === 'create-pet-vc') {
+      this.logger.log(`Processing job ${job.id} - Creating Pet VC for: ${job.data.petDID}`);
     }
   }
 
@@ -35,6 +37,8 @@ export class VcProcessor {
       this.logger.log(`Job ${job.id} completed - VC transfer processed for pet: ${data.petDID}`);
     } else if (job.name === 'sync-guardian-info') {
       this.logger.log(`Job ${job.id} completed - Guardian info synced for: ${job.data.walletAddress}`);
+    } else if (job.name === 'create-pet-vc') {
+      this.logger.log(`Job ${job.id} completed - Pet VC created for: ${job.data.petDID}`);
     }
   }
 
@@ -49,6 +53,11 @@ export class VcProcessor {
     } else if (job.name === 'sync-guardian-info') {
       this.logger.error(
         `Job ${job.id} failed - Guardian sync for: ${job.data.walletAddress} | Attempt: ${job.attemptsMade}/${job.opts.attempts}`,
+        error.stack
+      );
+    } else if (job.name === 'create-pet-vc') {
+      this.logger.error(
+        `Job ${job.id} failed - Pet VC creation for: ${job.data.petDID} | Attempt: ${job.attemptsMade}/${job.opts.attempts}`,
         error.stack
       );
     }
@@ -85,6 +94,47 @@ export class VcProcessor {
       };
     } catch (error) {
       this.logger.error(`Guardian sync error for ${walletAddress}:`, error.message);
+      throw error; // Bull will retry based on configuration
+    }
+  }
+
+  /**
+   * Process Pet VC Creation (after pet registration)
+   */
+  @Process('create-pet-vc')
+  async handlePetVCCreation(job: Job) {
+    const { petDID, guardianAddress, featureVectorHash, petData, vcSignature, message } = job.data;
+
+    try {
+      const startTime = Date.now();
+
+      // Create VC with guardian's real signature (보호자의 실제 서명 사용)
+      // message는 이미 클라이언트가 서명한 원본 메시지를 사용
+      const result = await this.vcService.createVCWithSignature({
+        guardianAddress,
+        signature: vcSignature,  // 실제 서명 사용!
+        message: message,  // 원본 메시지 사용 (nonce가 일치함)
+        petDID,
+        petData,
+      });
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to create pet VC');
+      }
+
+      const duration = Date.now() - startTime;
+      this.logger.debug(`Pet VC creation took ${duration}ms for ${petDID}`);
+
+      return {
+        success: true,
+        petDID,
+        guardianAddress,
+        vcId: result.vcId,
+        duration,
+        message: 'Pet VC created successfully with guardian signature'
+      };
+    } catch (error) {
+      this.logger.error(`Pet VC creation error for ${petDID}:`, error.message);
       throw error; // Bull will retry based on configuration
     }
   }

@@ -137,6 +137,23 @@ export class RedisService implements OnModuleDestroy {
     return await this.redis.flushall();
   }
 
+  // ==================== Pub/Sub ====================
+
+  /**
+   * Publish message to Redis channel
+   */
+  async publish(channel: string, message: string): Promise<number> {
+    return await this.redis.publish(channel, message);
+  }
+
+  /**
+   * Duplicate Redis connection for subscriber
+   * (필요: Pub/Sub uses separate connections)
+   */
+  duplicate(): Redis {
+    return this.redis.duplicate();
+  }
+
   async onModuleDestroy() {
     await this.redis.quit();
   }

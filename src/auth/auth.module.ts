@@ -25,6 +25,6 @@ import { VcModule } from "src/vc/vc.module";
     ],
     controllers: [AuthController],
     providers: [AuthService, TokenService],
-    exports: [AuthService, TokenService]
+    exports: [AuthService, TokenService, JwtModule]
 })
 export class AuthModule {}

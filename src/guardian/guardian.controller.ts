@@ -77,7 +77,7 @@ export class GuardianController {
 
     // Production mode logging
     if (process.env.NODE_ENV === 'production' && dto.signedTx) {
-      console.log(`🔐 Production mode: Received signedTx (${dto.signedTx?.length} chars): ${dto.signedTx?.substring(0, 50)}...`);
+      console.log(`Production mode: Received signedTx (${dto.signedTx?.length} chars): ${dto.signedTx?.substring(0, 50)}...`);
     }
 
     const txResult = await this.guardianService.registerGuardian(
@@ -126,5 +126,62 @@ export class GuardianController {
     }
 
     return txResult;
+  }
+
+  /**
+   * Guardian Link Pet (프로덕션 모드용 - 사용자가 서명한 트랜잭션 처리)
+   */
+  @Post('link-pet/:petDID')
+  @UseGuards(DIDAuthGuard)
+  @ApiOperation({ summary: 'Guardian Link Pet - 사용자 서명 트랜잭션으로 Pet 연결' })
+  async linkPet(
+    @Req() req: Request,
+    @Param('petDID') petDID: string,
+    @Body() body: { signedTx: string }
+  ) {
+    const guardianAddress = req.user?.address;
+
+    try {
+      const result = await this.guardianService.linkPet(
+        guardianAddress,
+        petDID,
+        body.signedTx
+      );
+
+      return {
+        success: true,
+        ...result,
+        message: `Pet ${petDID} linked to guardian ${guardianAddress}`
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Prepare Guardian Link Transaction Data (사용자가 서명할 트랜잭션 데이터 생성)
+   */
+  @Post('prepare-link-pet/:petDID')
+  @UseGuards(DIDAuthGuard)
+  @ApiOperation({ summary: 'Guardian Link 트랜잭션 데이터 준비 - 사용자가 서명해야 함' })
+  async prepareLinkPet(
+    @Req() req: Request,
+    @Param('petDID') petDID: string
+  ) {
+    const guardianAddress = req.user?.address;
+
+    const txData = await this.guardianService.prepareLinkPetTx(
+      guardianAddress,
+      petDID
+    );
+
+    return {
+      success: true,
+      transactionData: txData,
+      instruction: 'Sign this transaction with your wallet and call POST /api/guardian/link-pet/:petDID with the signed transaction'
+    };
   }
 }

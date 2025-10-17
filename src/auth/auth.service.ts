@@ -61,21 +61,21 @@ export class AuthService {
     signature: string
   ): Promise<boolean> {
     try {
-      // Get stored challenge
+      // 챌린지 검증
       const storedChallenge = await this.redisService.get(`challenge:${walletAddress}`);
 
       if (!storedChallenge || storedChallenge !== challenge) {
         return false;
       }
 
-      // Verify signature
+      // 서명 검증
       const recoveredAddress = ethers.verifyMessage(challenge, signature);
 
       if (recoveredAddress.toLowerCase() !== walletAddress.toLowerCase()) {
         return false;
       }
 
-      // Delete used challenge
+      // 챌린지 삭제
       await this.redisService.del(`challenge:${walletAddress}`);
 
       return true;

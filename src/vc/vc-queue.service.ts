@@ -72,6 +72,37 @@ export class VcQueueService {
   }
 
   /**
+   * Queue Pet VC creation (after pet registration)
+   */
+  async queuePetVCCreation(
+    petDID: string,
+    guardianAddress: string,
+    featureVectorHash: string,
+    petData: any,
+    vcSignature: string,  // 보호자의 실제 서명
+    message: any  // 서명된 원본 메시지
+  ) {
+    const job = await this.vcQueue.add('create-pet-vc', {
+      petDID,
+      guardianAddress,
+      featureVectorHash,
+      petData,
+      vcSignature,  // 실제 서명 전달
+      message,  // 원본 메시지 전달
+    }, {
+      priority: 2, // Medium priority
+      attempts: 3, // Retry up to 3 times
+      backoff: {
+        type: 'exponential',
+        delay: 2000, // Start with 2s delay
+      }
+    });
+
+    this.logger.log(`Queued pet VC creation job ${job.id} for ${petDID}`);
+    return job.id;
+  }
+
+  /**
    * Get job status
    */
   async getJobStatus(jobId: string) {

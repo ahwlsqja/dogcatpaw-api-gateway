@@ -15,6 +15,7 @@ import { CreateDailyStoryDto, CreateReviewStoryDto } from './dto/story.dto';
 import { WriteCommentDto } from './dto/comment.dto';
 import { CreateChatRoomDto } from './dto/chat.dto';
 import { CreateDonationPostDto, MakeDonationDto, PreparePaymentDto, ApprovePaymentDto } from './dto/donation.dto';
+import { WalletAddress } from 'src/auth/decorator/wallet-address.decorator';
 
 @ApiTags('Spring Backend Proxy')
 @Controller('api')
@@ -29,27 +30,20 @@ export class SpringController {
 
   // ========== Pet Profile API ==========
 
+  // 내 반려동물 조회
   @Get('pet')
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get my pet list (내 반려동물 조회)' })
-  async getMyPets(@Headers() headers: any) {
-    return this.springProxyService.getMyPets(headers);
-  }
-
-  // ========== VC Sync API ==========
-
-  @Post('vc/sync')
-  @ApiOperation({ summary: 'VC JWT sync' })
-  async syncVc(@Body() dto: VcSyncDto) {
-    return this.springProxyService.syncVc(dto);
+  async getMyPets(@WalletAddress() walletAddress: string) {
+    return this.springProxyService.getMyPets(walletAddress);
   }
 
   // ========== Adoption Post API ==========
 
-  @Public()
+  // 입양 공고 조회
   @Get('adoption')
-  @ApiOperation({ summary: 'Get adoption posts (cursor-based) (입양 게시 조회)' })
+  @ApiOperation({ summary: 'Get adoption posts (cursor-based) (입양 공고 조회)' })
   @ApiQuery({ name: 'cursor', required: false, type: Number })
   @ApiQuery({ name: 'size', required: false, type: Number })
   @ApiQuery({ name: 'status', required: false, type: String })
@@ -67,7 +61,7 @@ export class SpringController {
     return this.springProxyService.getAdoptions({ cursor, size, status, breed, region, district });
   }
 
-  @Public()
+  // 입양 공고 상세 페이지 조회
   @Get('adoption/detail')
   @ApiOperation({ summary: 'Get adoption post detail (입양 게시 글 상세보기 조회)' })
   @ApiQuery({ name: 'adoptId', required: true, type: Number })
@@ -75,32 +69,33 @@ export class SpringController {
     return this.springProxyService.getAdoptionDetail(adoptId);
   }
 
-  @Public()
+  // 홈 화면 조회
   @Get('adoption/home')
   @ApiOperation({ summary: 'Get home screen (홈 화면 조회)' })
   async getAdoptionHome() {
     return this.springProxyService.getAdoptionHome();
   }
 
+  // 입양 공고 작성
   @Post('adoption/post')
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create adoption post (입양 게시 작성)' })
-  async createAdoptionPost(@Body() dto: CreateAdoptionPostDto, @Headers() headers: any) {
-    return this.springProxyService.createAdoptionPost(dto, headers);
+  async createAdoptionPost(@Body() dto: CreateAdoptionPostDto, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.createAdoptionPost(dto, walletAddress);
   }
 
   // ========== Daily Story API ==========
-
+  // 일상 일지 작성
   @Post('story/daily')
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create daily story (일상 글쓰기 작성)' })
-  async createDailyStory(@Body() dto: CreateDailyStoryDto, @Headers() headers: any) {
-    return this.springProxyService.createDailyStory(dto, headers);
+  async createDailyStory(@Body() dto: CreateDailyStoryDto, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.createDailyStory(dto, walletAddress);
   }
 
-  @Public()
+  //
   @Get('story/daily/stories')
   @ApiOperation({ summary: 'Get all daily stories (최신 일상 글쓰기 전체 조회)' })
   @ApiQuery({ name: 'cursorId', required: false, type: Number })
