@@ -48,8 +48,9 @@ export interface PetRegistrationJob {
     gender?: string;
     color?: string;
     feature?: string;
-    neutered?: boolean;
-    species: string;
+    neutral?: boolean;
+    specifics: string;
+    images: string;
   };
   registeredAt: Date;
 }
@@ -322,16 +323,11 @@ export class SpringProcessor {
 
       // Prepare pet registration data for Spring
       const springData = {
-        guardianAddress,
-        guardianDID: `did:ethr:besu:${guardianAddress}`,
-        petDID,
-        petData: {
-          ...petData,
-          registeredAt: new Date(registeredAt).toISOString(),
-        },
-        notificationType: 'pet_registration',
-        timestamp: new Date().toISOString(),
+        did: petDID,
+        ...petData,
       };
+
+      console.log(springData)
 
       const response = await firstValueFrom(
         this.httpService.post(
@@ -341,6 +337,7 @@ export class SpringProcessor {
             headers: {
               'Content-Type': 'application/json',
               'X-API-Gateway': 'dogcatpaw',
+              'X-Wallet-Address': guardianAddress,
             }
           }
         )

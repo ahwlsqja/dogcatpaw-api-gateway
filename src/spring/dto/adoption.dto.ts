@@ -12,6 +12,11 @@ export class CreateAdoptionPostDto {
   @IsNotEmpty()
   title: string;
 
+  @ApiProperty({ description: 'Image URLS' })
+  @IsString()
+  @IsNotEmpty()
+  images: string;
+
   @ApiProperty({ description: 'Post content' })
   @IsString()
   @IsNotEmpty()

@@ -22,30 +22,52 @@ export class VcService {
   constructor(private vcProxyService: VcProxyService) {}
 
   /**
-   * Step 1: 서명할 데이터 준비
+   * Step 1: 서명할 데이터 준비 (JWT 표준 방식)
    */
   prepareVCSigning(params: PrepareVCSigningParams) {
     const { guardianAddress, petDID, biometricHash, petData } = params;
 
-    // 서명할 메시지 생성
-    const message = {
-      vcType: 'PetIdentityCredential',
-      sub: petDID,
-      guardian: guardianAddress,
-      biometricHash,
-      petData,
-      issuedAt: new Date().toISOString(),
-      nonce: Math.random().toString(36).substring(2),
+    const now = Math.floor(Date.now() / 1000);
+
+    // JWT Header
+    const header = {
+      alg: 'ES256K-R',
+      typ: 'JWT',
     };
 
+    // JWT Payload
+    const payload = {
+      iss: `did:ethr:besu:${guardianAddress}`,
+      sub: petDID,
+      nbf: now,
+      exp: now + 86400 * 365, // 1 year
+      vc: {
+        '@context': ['https://www.w3.org/2018/credentials/v1'],
+        type: ['VerifiableCredential', 'PetIdentityCredential'],
+        credentialSubject: {
+          id: petDID,
+          guardian: guardianAddress,
+          biometricHash,
+          ...petData,
+        },
+      },
+    };
+
+    // JWT 표준: header.payload를 서명
+    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signingData = `${encodedHeader}.${encodedPayload}`;
+
     // 메시지 해시
-    const messageHash = ethers.keccak256(
-      ethers.toUtf8Bytes(JSON.stringify(message))
-    );
+    const messageHash = ethers.keccak256(ethers.toUtf8Bytes(signingData));
 
     return {
-      message,
+      message: payload, // payload를 message로 전달 (호환성)
       messageHash,
+      signingData, // 정확한 서명 데이터
+      header,
+      encodedHeader,
+      encodedPayload,
       instruction: 'Please sign this message to create Pet VC',
     };
   }
@@ -56,10 +78,20 @@ export class VcService {
   async createVCWithSignature(params: CreateVCParams) {
     const { guardianAddress, signature, message, petDID, petData } = params;
 
-    // 서명 검증 (signMessage로 서명된 경우)
-    const messageHash = ethers.keccak256(
-      ethers.toUtf8Bytes(JSON.stringify(message))
-    );
+    // JWT payload 재구성 (서명 검증용)
+    const header = {
+      alg: 'ES256K-R',
+      typ: 'JWT',
+    };
+
+    const payload = message; // prepareVCSigning에서 전달한 payload 사용
+
+    // JWT 표준 서명 검증
+    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signingData = `${encodedHeader}.${encodedPayload}`;
+
+    const messageHash = ethers.keccak256(ethers.toUtf8Bytes(signingData));
     const recoveredAddress = ethers.verifyMessage(messageHash, signature);
 
     if (recoveredAddress.toLowerCase() !== guardianAddress.toLowerCase()) {
@@ -67,19 +99,18 @@ export class VcService {
       console.error(`  Expected: ${guardianAddress}`);
       console.error(`  Recovered: ${recoveredAddress}`);
       console.error(`  Message Hash: ${messageHash}`);
-      console.error(`  Message petDID: ${message.sub}`);
-      console.error(`  Actual petDID: ${petDID}`);
+      console.error(`  Signing Data: ${signingData.substring(0, 100)}...`);
       console.error(`  Signature: ${signature.substring(0, 20)}...`);
       return { success: false, error: 'Invalid signature' };
     }
 
-    // VC JWT 조립 (보호자가 issuer)
+    console.log(`✅ VC Signature Verified: ${guardianAddress}`);
+
+    // VC JWT 조립 (이미 검증된 header, payload, signature 사용)
     const vcJwt = this.assembleVCJWT({
-      issuer: guardianAddress,
+      header,
+      payload,
       signature,
-      petDID,
-      petData,
-      message,
     });
 
     const result = await this.vcProxyService.storeVC({
@@ -94,38 +125,15 @@ export class VcService {
   /**
    * VC JWT 조립 (did-jwt 형식)
    */
-  assembleVCJWT(data: any): string {
-    // JWT Header
-    const header = {
-      alg: 'ES256K-R', // Ethereum 서명 알고리즘
-      typ: 'JWT',
-    };
+  assembleVCJWT(data: { header: any; payload: any; signature: string }): string {
+    // Base64url 인코딩
+    const encodedHeader = Buffer.from(JSON.stringify(data.header)).toString('base64url');
+    const encodedPayload = Buffer.from(JSON.stringify(data.payload)).toString('base64url');
 
-    // VC Payload
-    const payload = {
-      iss: `did:ethr:besu:${data.issuer}`,
-      sub: data.petDID,
-      nbf: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000 + 86400 * 365),
-      vc: {
-        '@context': ['https://www.w3.org/2018/credentials/v1'],
-        type: ['VerifiableCredential', 'PetIdentityCredential'],
-        credentialSubject: {
-          id: data.petDID,
-          guardian: data.issuer,
-          ...data.petData,
-        },
-      },
-    };
-
-    // Base64 인코딩
-    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
-    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
-
-    // 서명은 이미 클라이언트에서 받음
+    // 서명은 이미 클라이언트에서 받음 (0x 제거 후 base64url 인코딩)
     const encodedSignature = Buffer.from(data.signature.slice(2), 'hex').toString('base64url');
 
-    // JWT 조립
+    // JWT 조립: header.payload.signature
     return `${encodedHeader}.${encodedPayload}.${encodedSignature}`;
   }
 
@@ -140,7 +148,7 @@ export class VcService {
   }
 
   /**
-   * 소유권 이전을 위한 서명 준비
+   * 소유권 이전을 위한 서명 준비 (JWT 표준 방식)
    */
   prepareTransferVCSigning(params: {
     previousGuardian: string;
@@ -151,27 +159,49 @@ export class VcService {
   }) {
     const { previousGuardian, newGuardian, petDID, biometricHash, petData } = params;
 
-    // 이전용 메시지 생성
-    const message = {
-      vcType: 'PetTransferCredential', // 타입 변경
-      sub: petDID,
-      guardian: newGuardian, // 새 보호자
-      previousGuardian, // 이전 보호자 추가
-      biometricHash,
-      petData,
-      transferDate: new Date().toISOString(),
-      issuedAt: new Date().toISOString(),
-      nonce: Math.random().toString(36).substring(2),
+    const now = Math.floor(Date.now() / 1000);
+
+    // JWT Header
+    const header = {
+      alg: 'ES256K-R',
+      typ: 'JWT',
     };
 
+    // JWT Payload (Transfer VC)
+    const payload = {
+      iss: `did:ethr:besu:${newGuardian}`,
+      sub: petDID,
+      nbf: now,
+      exp: now + 86400 * 365, // 1 year
+      vc: {
+        '@context': ['https://www.w3.org/2018/credentials/v1'],
+        type: ['VerifiableCredential', 'PetTransferCredential'],
+        credentialSubject: {
+          id: petDID,
+          guardian: newGuardian,
+          previousGuardian,
+          biometricHash,
+          transferDate: new Date().toISOString(),
+          ...petData,
+        },
+      },
+    };
+
+    // JWT 표준: header.payload를 서명
+    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signingData = `${encodedHeader}.${encodedPayload}`;
+
     // 메시지 해시
-    const messageHash = ethers.keccak256(
-      ethers.toUtf8Bytes(JSON.stringify(message))
-    );
+    const messageHash = ethers.keccak256(ethers.toUtf8Bytes(signingData));
 
     return {
-      message,
+      message: payload, // payload를 message로 전달
       messageHash,
+      signingData,
+      header,
+      encodedHeader,
+      encodedPayload,
       instruction: 'New guardian must sign to accept pet transfer',
     };
   }
@@ -188,27 +218,36 @@ export class VcService {
   }) {
     const { newGuardian, signature, message, petDID, petData } = params;
 
-    // 서명 검증 (signMessage로 서명된 경우)
-    const messageHash = ethers.keccak256(
-      ethers.toUtf8Bytes(JSON.stringify(message))
-    );
+    // JWT payload 재구성 (서명 검증용)
+    const header = {
+      alg: 'ES256K-R',
+      typ: 'JWT',
+    };
+
+    const payload = message; // prepareTransferVCSigning에서 전달한 payload 사용
+
+    // JWT 표준 서명 검증
+    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signingData = `${encodedHeader}.${encodedPayload}`;
+
+    const messageHash = ethers.keccak256(ethers.toUtf8Bytes(signingData));
     const recoveredAddress = ethers.verifyMessage(messageHash, signature);
 
     if (recoveredAddress.toLowerCase() !== newGuardian.toLowerCase()) {
+      console.error('❌ Transfer VC Signature Verification Failed:');
+      console.error(`  Expected: ${newGuardian}`);
+      console.error(`  Recovered: ${recoveredAddress}`);
       return { success: false, error: 'Invalid signature' };
     }
 
-    // VC JWT 조립 (새 보호자가 issuer)
+    console.log(`✅ Transfer VC Signature Verified: ${newGuardian}`);
+
+    // VC JWT 조립
     const vcJwt = this.assembleVCJWT({
-      issuer: newGuardian,
+      header,
+      payload,
       signature,
-      petDID,
-      petData: {
-        ...petData,
-        previousGuardian: message.previousGuardian,
-        transferDate: message.transferDate,
-      },
-      message,
     });
 
     const result = await this.vcProxyService.storeVC({

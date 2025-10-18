@@ -23,31 +23,61 @@ export class AuthController {
   /**
    * Step 1: Challenge 요청 (로그인 시작)
    * API Gateway 인증을 위한 challenge-response 방식
+   * VP 서명 데이터도 함께 반환
    */
   @Post('challenge')
-  @ApiOperation({ summary: '로그인하기 위한 서명' })
+  @ApiOperation({ summary: '로그인하기 위한 서명 (challenge + VP signing data)' })
   async getChallenge(@Body() dto: { walletAddress: string }) {
     const challenge = await this.authService.createChallenge(dto.walletAddress);
+
+    // VCs 가져오기 (VP 생성용)
+    const vcsResponse = await this.vcProxyService.getVCsByWallet({
+      walletAddress: dto.walletAddress
+    }).catch(() => ({ vcs: [] }));
+    const vcs = vcsResponse.vcs || [];
+
+    // VC가 없으면 VP 서명 데이터 없이 반환
+    if (vcs.length === 0) {
+      return {
+        success: true,
+        challenge,
+        vpSigningData: null,
+        message: 'Sign this challenge with your wallet (no VCs found, VP will not be created)',
+        expiresIn: 300, // 5 minutes
+      };
+    }
+
+    // VP 서명 데이터 준비
+    const vpSigningData = this.authService.prepareVPSigning({
+      holder: dto.walletAddress,
+      verifiableCredentials: vcs.map((vc: any) => vc.vcJwt),
+      audience: this.configService.get<string>(envVariableKeys.springurl) || 'http://localhost:8080',
+      purpose: 'authentication',
+    });
 
     return {
       success: true,
       challenge,
-      message: 'Sign this challenge with your wallet',
+      vpSigningData, // VP 서명 데이터 추가
+      message: 'Sign both challenge and VP message with your wallet',
       expiresIn: 300, // 5 minutes
     };
   }
 
   /**
    * Step 2: 서명 검증 및 로그인 (API Gateway 인증)
-   * API Gateway 세션 생성 + VP 자동 생성 (One Session = One VP)
+   * API Gateway 세션 생성 + VP 생성 (vpSignature 필요)
    */
   @Post('login')
-  @ApiOperation({ summary: 'Login with wallet signature and auto-create VP' })
+  @ApiOperation({ summary: 'Login with wallet signature and VP signature' })
   async login(
     @Body() dto: {
       walletAddress: string;
       signature: string;
       challenge: string;
+      vpSignature?: string;
+      vpMessage?: any;
+      vpSignedData?: string;
     }
   ) {
     try {
@@ -90,7 +120,8 @@ export class AuthController {
         vcCount: vcs.length,
       });
 
-      if(vcs.length === 0) {
+      // VC가 없거나 VP 서명이 없는 경우
+      if(vcs.length === 0 || !dto.vpSignature || !dto.vpMessage) {
         const refreshToken = await this.authService.createRefreshToken(dto.walletAddress);
 
         await this.tokenService.setVPForToken(accessToken, "EMPTY", 86400); // 24 hours
@@ -105,25 +136,17 @@ export class AuthController {
           guardianInfo,
           vcCount: vcs.length,
         },
-        message: '로그인이 성공했습니다!!',
+        message: '로그인이 성공했습니다!! (No VP created)',
       };
       }
 
-      // 5. VP 생성 (서버사이드 - 이미 서명된 challenge 재사용)
-      // VP 조립
-      const vpSigningData = this.authService.prepareVPSigning({
-        holder: dto.walletAddress,
-        verifiableCredentials: vcs.map((vc: any) => vc.vcJwt),
-        audience: this.configService.get<string>(envVariableKeys.springurl) || 'http://localhost:8080', // audience 이 VP가 누구를 위해 만들어졌는가? 를 의미함
-        purpose: 'authentication',
-      });
-
-      // VP 생성
+      // 5. VP 생성 (클라이언트가 서명한 VP 메시지 사용)
       const vp = await this.authService.createVPWithSignature({
         holder: dto.walletAddress,
-        signature: dto.signature,
-        message: vpSigningData.message,
+        signature: dto.vpSignature, // VP 전용 서명 사용
+        message: dto.vpMessage,
         verifiableCredentials: vcs.map((vc: any) => vc.vcJwt),
+        signedData: dto.vpSignedData, // 클라이언트가 서명한 정확한 데이터
       });
 
       // 6. VP 세션 Redis에 저장

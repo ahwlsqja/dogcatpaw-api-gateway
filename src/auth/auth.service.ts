@@ -97,27 +97,42 @@ export class AuthService {
   }) {
     const { holder, verifiableCredentials, audience, purpose, additionalClaims } = params;
 
-    // Create message to be signed by the client
-    const message = {
-      vpType: 'AuthenticationPresentation',
-      holder: `did:ethr:besu:${holder}`,
-      verifiableCredentials,
-      audience,
-      purpose: purpose || 'authentication',
-      issuedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 3600000).toISOString(), // 1 hour
-      nonce: Math.random().toString(36).substring(2),
-      ...additionalClaims,
+    const now = Math.floor(Date.now() / 1000);
+    const nonce = Math.random().toString(36).substring(2);
+
+    // VP JWT Payload (W3C VP 표준)
+    const vpPayload = {
+      iss: `did:ethr:besu:${holder}`,
+      aud: audience,
+      nbf: now,
+      exp: now + 3600, // 1 hour
+      nonce: nonce,
+      vp: {
+        '@context': ['https://www.w3.org/2018/credentials/v1'],
+        type: ['VerifiablePresentation'],
+        holder: `did:ethr:besu:${holder}`,
+        verifiableCredential: verifiableCredentials,
+      },
     };
 
-    // Create message hash for signing
-    const messageHash = ethers.keccak256(
-      ethers.toUtf8Bytes(JSON.stringify(message))
-    );
+    // JWT Header
+    const vpHeader = {
+      alg: 'ES256K-R',
+      typ: 'JWT',
+    };
+
+    // Create signing data (header.payload)
+    const encodedHeader = Buffer.from(JSON.stringify(vpHeader)).toString('base64url');
+    const encodedPayload = Buffer.from(JSON.stringify(vpPayload)).toString('base64url');
+    const signingData = `${encodedHeader}.${encodedPayload}`;
 
     return {
-      message,
-      messageHash,
+      message: vpPayload,
+      messageHash: signingData, // JWT에서는 header.payload를 서명
+      signingData: signingData,
+      header: vpHeader,
+      encodedHeader: encodedHeader,
+      encodedPayload: encodedPayload,
       instruction: 'Please sign this message to create Verifiable Presentation',
     };
   }
@@ -130,26 +145,47 @@ export class AuthService {
     signature: string;
     message: any;
     verifiableCredentials: any[];
+    signedData?: string; // Optional: the exact data that was signed
   }): Promise<{ jwt: string; expiresIn: number }> {
-    const { holder, signature, message, verifiableCredentials } = params;
+    const { holder, signature, message, verifiableCredentials, signedData } = params;
 
     try {
-      // Verify signature
-      const messageHash = ethers.keccak256(
-        ethers.toUtf8Bytes(JSON.stringify(message))
-      );
-      const recoveredAddress = ethers.recoverAddress(messageHash, signature);
+      // Verify signature (same as VC verification)
+      // Use the exact signedData that was sent from client if available
+      const header = {
+        alg: 'ES256K-R',
+        typ: 'JWT',
+      };
 
-      if (recoveredAddress.toLowerCase() !== holder.toLowerCase()) {
-        throw new Error('Invalid signature');
+      let signingData: string;
+      if (signedData) {
+        // Use the exact data that client signed
+        signingData = signedData;
+      } else {
+        // Fallback: reconstruct (might have JSON serialization differences)
+        const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+        const encodedPayload = Buffer.from(JSON.stringify(message)).toString('base64url');
+        signingData = `${encodedHeader}.${encodedPayload}`;
       }
 
-      // Assemble VP JWT (similar to vc.service.ts assembleVCJWT)
+      const messageHash = ethers.keccak256(ethers.toUtf8Bytes(signingData));
+      const recoveredAddress = ethers.verifyMessage(messageHash, signature);
+
+      if (recoveredAddress.toLowerCase() !== holder.toLowerCase()) {
+        this.logger.error(`VP signature verification failed: ${recoveredAddress} vs ${holder}`);
+        this.logger.error(`Signing data length: ${signingData.length}`);
+        this.logger.error(`Message hash: ${messageHash}`);
+        this.logger.error(`Signature: ${signature.substring(0, 20)}...`);
+        throw new Error('Invalid VP signature');
+      }
+
+      this.logger.log(`VP signature verified for ${holder}`);
+
+      // Assemble VP JWT
       const vpJwt = this.assembleVPJWT({
-        issuer: holder,
+        header,
+        payload: message,
         signature,
-        verifiableCredentials,
-        message,
       });
 
       // Store VP in Redis for Spring integration if needed
@@ -172,31 +208,14 @@ export class AuthService {
   /**
    * Assemble VP JWT (similar to vc.service.ts pattern)
    */
-  private assembleVPJWT(data: any): string {
-    // JWT Header
-    const header = {
-      alg: 'ES256K-R', // Ethereum signature algorithm
-      typ: 'JWT',
-    };
-
-    // VP Payload following W3C standard
-    const payload = {
-      iss: `did:ethr:besu:${data.issuer}`,
-      aud: data.message.audience,
-      nbf: Math.floor(new Date(data.message.issuedAt).getTime() / 1000),
-      exp: Math.floor(new Date(data.message.expiresAt).getTime() / 1000),
-      nonce: data.message.nonce,
-      vp: {
-        '@context': ['https://www.w3.org/2018/credentials/v1'],
-        type: ['VerifiablePresentation'],
-        holder: `did:ethr:besu:${data.issuer}`,
-        verifiableCredential: data.verifiableCredentials,
-      },
-    };
-
+  private assembleVPJWT(data: {
+    header: any;
+    payload: any;
+    signature: string;
+  }): string {
     // Base64 URL encoding
-    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
-    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const encodedHeader = Buffer.from(JSON.stringify(data.header)).toString('base64url');
+    const encodedPayload = Buffer.from(JSON.stringify(data.payload)).toString('base64url');
 
     // Signature from client (already signed)
     const encodedSignature = Buffer.from(data.signature.slice(2), 'hex').toString('base64url');
@@ -206,36 +225,73 @@ export class AuthService {
   }
 
   /**
-   * Verify Verifiable Presentation using did-jwt-vc
-   * Matches your reference code pattern
+   * Verify Verifiable Presentation using manual verification (like VC)
+   * Skips did-jwt-vc library to use same verification as VC
    */
   async verifyPresentation(vpJwt: string): Promise<any> {
     try {
-      // VP 검증
-      const result = await verifyPresentation(vpJwt, this.resolver);
+      // Decode VP JWT manually
+      const parts = vpJwt.split('.');
+      if (parts.length !== 3) {
+        return { verified: false, error: 'Invalid JWT format' };
+      }
 
-      // VP 검증되었는지 체크
-      if (!result || !result.verified) {
+      const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+      const signature = '0x' + Buffer.from(parts[2], 'base64url').toString('hex');
+
+      // Verify signature manually (same as VC verification)
+      const signingData = `${parts[0]}.${parts[1]}`;
+      const messageHash = ethers.keccak256(ethers.toUtf8Bytes(signingData));
+
+      const recoveredAddress = ethers.verifyMessage(messageHash, signature);
+      const expectedAddress = payload.iss?.replace('did:ethr:besu:', '');
+
+      if (recoveredAddress.toLowerCase() !== expectedAddress?.toLowerCase()) {
+        this.logger.warn(`VP signature mismatch: ${recoveredAddress} vs ${expectedAddress}`);
         return {
           verified: false,
-          error: 'VP 검증 실패'
+          error: 'VP signature verification failed'
         };
       }
 
-      // Verify each VC within the VP (like your reference)
+      this.logger.log(`VP signature verified for ${expectedAddress}`);
+
+      // Verify each VC within the VP (manual verification for custom DID registry)
       const vcs = await Promise.all(
-        result.payload.vp.verifiableCredential.map(async (vcJwt: string) => {
+        (payload.vp?.verifiableCredential || []).map(async (vcJwt: string) => {
           try {
-            const vcResult = await verifyCredential(vcJwt, this.resolver);
-            if (vcResult && vcResult.verified) {
+            // Decode VC JWT manually
+            const vcParts = vcJwt.split('.');
+            if (vcParts.length !== 3) {
+              return { verified: false, error: 'Invalid VC JWT format' };
+            }
+
+            const vcHeader = JSON.parse(Buffer.from(vcParts[0], 'base64url').toString());
+            const vcPayload = JSON.parse(Buffer.from(vcParts[1], 'base64url').toString());
+            const vcSignature = '0x' + Buffer.from(vcParts[2], 'base64url').toString('hex');
+
+            // Verify VC signature manually (JWT standard)
+            // VC는 issuer(guardian)가 header.payload를 서명함
+            const vcSigningData = `${vcParts[0]}.${vcParts[1]}`;
+            const vcMessageHash = ethers.keccak256(ethers.toUtf8Bytes(vcSigningData));
+
+            const vcRecoveredAddress = ethers.verifyMessage(vcMessageHash, vcSignature);
+            const vcIssuerAddress = vcPayload.iss?.replace('did:ethr:besu:', '');
+
+            // VC는 issuer(guardian)가 서명한 것이므로 issuer와 비교
+            if (vcRecoveredAddress.toLowerCase() === vcIssuerAddress?.toLowerCase()) {
+              this.logger.log(`VC signature verified: issued and signed by ${vcIssuerAddress}`);
               return {
                 verified: true,
-                credential: vcResult.payload.vc,
-                issuer: vcResult.payload.iss,
-                subject: vcResult.payload.sub,
+                credential: vcPayload.vc,
+                issuer: vcPayload.iss,
+                subject: vcPayload.sub,
               };
+            } else {
+              this.logger.warn(`VC signature mismatch: recovered ${vcRecoveredAddress} vs issuer ${vcIssuerAddress}`);
+              return { verified: false, error: 'VC signature verification failed' };
             }
-            return { verified: false };
           } catch (error) {
             this.logger.error('VC verification failed:', error);
             return { verified: false, error: error.message };
@@ -256,9 +312,9 @@ export class AuthService {
 
       return {
         verified: true,
-        holder: result.payload.iss,
-        verifiableCredential: result.payload.vp.verifiableCredential,
-        payload: result.payload,
+        holder: payload.iss,
+        verifiableCredential: payload.vp?.verifiableCredential,
+        payload: payload,
         vcs, // Individual VC verification results
       };
     } catch (error) {

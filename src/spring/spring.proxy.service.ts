@@ -40,15 +40,19 @@ export class SpringProxyService {
     queryParams?: any,
     headers?: any
   ) {
+    console.log(headers)
     try {
       const config = {
         headers: {
           'Content-Type': 'application/json',
           'X-API-Gateway': 'dogcatpaw',
-          'X-Wallet-Address': headers.walletAddress,
+          'X-Wallet-Address': headers,
         },
         params: queryParams
       };
+
+      console.log(config)
+      
 
       let response;
       if (method === 'get' || method === 'delete') {
@@ -67,6 +71,7 @@ export class SpringProxyService {
           )
         );
       }
+      console.log(response.data)
 
       return response.data;
     } catch (error) {
@@ -77,6 +82,7 @@ export class SpringProxyService {
 
   // ==================== Pet API ====================
   async getMyPets(headers?: any) {
+    console.log(headers)
     return this.proxyToSpring('get', '/api/pet', undefined, undefined, headers);
   }
 
@@ -94,10 +100,15 @@ export class SpringProxyService {
     return this.proxyToSpring('get', '/api/adoption/detail', undefined, { adoptId });
   }
 
+  /**
+   * 
+   * 
+   */
   async getAdoptionHome() {
     return this.proxyToSpring('get', '/api/adoption/home');
   }
 
+  // 연결 완료
   async createAdoptionPost(data: CreateAdoptionPostDto, headers?: any) {
     return this.proxyToSpring('post', '/api/adoption/post', data, undefined, headers);
   }

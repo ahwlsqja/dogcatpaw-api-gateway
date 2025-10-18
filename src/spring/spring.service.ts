@@ -128,8 +128,9 @@ export class SpringService {
       gender?: string;
       color?: string;
       feature?: string;
-      neutered?: boolean;
-      species: string;
+      neutral?: boolean;
+      specifics: string;
+      images: string
     }
   ) {
     const job = await this.springQueue.add('sync-pet-registration', {

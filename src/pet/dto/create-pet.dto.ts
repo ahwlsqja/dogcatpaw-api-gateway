@@ -10,7 +10,14 @@ export class CreatePetDto {
     enum: ['dog', 'cat', 'bird', 'rabbit', 'hamster', 'other']
   })
   @IsString()
-  species: string;
+  specifics: string;
+
+  @ApiProperty({
+    description: "이미지",
+    example: "dfdadsfsdf"
+  })
+  @IsString()
+  images: string;
 
   @ApiPropertyOptional({
     description: '반려동물 이름',
@@ -33,7 +40,7 @@ export class CreatePetDto {
   @ApiPropertyOptional({
     description: '반려동물 성별',
     enum: Gender,
-    example: Gender.MAIL
+    example: Gender.MALE
   })
   @IsOptional()
   @IsEnum(Gender, { message: '성별은 유효한 성별이어야 합니다.' })
@@ -78,7 +85,7 @@ export class CreatePetDto {
   })
   @IsOptional()
   @IsBoolean()
-  neutered?: boolean;
+  neutral?: boolean;
 
   @ApiPropertyOptional({
     description: '비문 데이터 (ML 서버에서 생성된 feature vector)',

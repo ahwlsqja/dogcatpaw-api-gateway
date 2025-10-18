@@ -123,7 +123,7 @@ export class PetController {
       featureVectorHash,
       dto.modelServerReference || 'model-server-ref',
       dto.sampleCount || 1,
-      dto.species,
+      dto.specifics,
       '0' // metadataURI
     );
 
@@ -142,8 +142,8 @@ export class PetController {
       gender: dto.gender?.toString(),
       color: dto.color,
       feature: dto.feature,
-      neutered: dto.neutered,
-      species: dto.species,
+      neutral: dto.neutral,
+      specifics: dto.specifics,
     };
 
     const vcSigningData = this.vcService.prepareVCSigning({
@@ -294,8 +294,9 @@ export class PetController {
       gender: dto.gender?.toString(),
       color: dto.color,
       feature: dto.feature,
-      neutered: dto.neutered,
-      species: dto.species,
+      neutral: dto.neutral,
+      specifics: dto.specifics,
+      images: dto.images
     };
 
     // 8. Guardian Link 큐 등록

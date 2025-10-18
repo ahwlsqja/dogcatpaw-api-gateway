@@ -56,4 +56,9 @@ export class RegisterPetDto {
   @IsBoolean()
   @IsOptional()
   neutral?: boolean;
+
+  @ApiProperty({ description: "PetImage", required: true})
+  @IsString()
+  @IsNotEmpty()
+  images: string;
 }
