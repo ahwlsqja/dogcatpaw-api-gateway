@@ -37,7 +37,10 @@ export class WsAuthAdapter extends IoAdapter {
     // WebSocket 연결 시 인증 미들웨어
     server.use(async (socket, next) => {
       try {
+        this.logger.debug('WebSocket authentication middleware triggered');
         const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.replace('Bearer ', '');
+
+        this.logger.debug(`Token received: ${token ? token.substring(0, 30) + '...' : 'none'}`);
 
         if (!token) {
           this.logger.warn('No token provided in WebSocket connection');
@@ -55,6 +58,7 @@ export class WsAuthAdapter extends IoAdapter {
         let payload;
         try {
           payload = this.jwtService.verify(token);
+          this.logger.debug(`JWT verified for address: ${payload.address}`);
         } catch (error) {
           this.logger.error(`JWT verification failed: ${error.message}`);
           return next(new Error('Invalid token'));
@@ -62,6 +66,7 @@ export class WsAuthAdapter extends IoAdapter {
 
         // 3. VP 검증 (캐시 우선)
         const vpJwt = await this.tokenService.getVPForToken(token);
+        this.logger.debug(`VP JWT: ${vpJwt ? (vpJwt === 'EMPTY' ? 'EMPTY' : 'exists') : 'none'}`);
 
         if (vpJwt && vpJwt !== 'EMPTY') {
           // 3-1. 캐시된 VP 검증 결과 확인
@@ -78,6 +83,7 @@ export class WsAuthAdapter extends IoAdapter {
               vcCount: cachedVerification.vcCount,
             };
 
+            this.logger.log(`✅ WebSocket auth success (VP cached): ${payload.address}`);
             return next();
           }
 
@@ -121,6 +127,7 @@ export class WsAuthAdapter extends IoAdapter {
               vcCount: vpVerification.verifiableCredential?.length || 0,
             };
 
+            this.logger.log(`✅ WebSocket auth success (VP verified): ${payload.address}`);
             return next();
           } catch (error) {
             this.logger.error(`VP verification error: ${error.message}`);
@@ -136,10 +143,12 @@ export class WsAuthAdapter extends IoAdapter {
             vpVerified: false,
           };
 
+          this.logger.log(`⚠️  WebSocket auth success (No VP): ${payload.address}`);
           return next();
         }
       } catch (error) {
         this.logger.error(`WebSocket authentication error: ${error.message}`);
+        this.logger.error(`Error stack: ${error.stack}`);
         return next(new Error('Authentication failed'));
       }
     });

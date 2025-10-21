@@ -424,8 +424,12 @@ export class PetController {
     // 주소
     const newGuardian = req.user?.address;
 
+    console.log(`🔍 [verify-transfer] Starting biometric verification for ${petDID}`);
+    console.log(`🔍 [verify-transfer] Image filename: ${imageDto.image}`);
+    console.log(`🔍 [verify-transfer] New guardian: ${newGuardian}`);
+
     // 1. 이미지 이동
-    this.commonService.saveNosePrintToPermanentStorage(imageDto.image, petDID)
+    await this.commonService.saveNosePrintToPermanentStorage(imageDto.image, petDID)
 
     // 2. Pet의 기존 controller 가져오기
     const didDoc = await this.petService.getDIDDocument(petDID);
@@ -439,14 +443,19 @@ export class PetController {
     }
 
     const imageKey = `nose-print-photo/${petDID}/${imageDto.image}`
+    console.log(`🔍 [verify-transfer] Image key: ${imageKey}`);
 
     try {
+      console.log(`🔍 [verify-transfer] Calling ML server compareWithStoredImage...`);
       const mlResult = await this.noseEmbedderService.compareWithStoredImage(
         imageKey,
         petDID,
       );
 
+      console.log(`🔍 [verify-transfer] ML Result:`, JSON.stringify(mlResult, null, 2));
+
       if (!mlResult.success) {
+        console.error(`❌ [verify-transfer] ML comparison failed: ${mlResult.errorMessage}`);
         throw new BadRequestException(mlResult.errorMessage || '추출 및 비교 실패');
       }
 
@@ -496,7 +505,12 @@ export class PetController {
         nextStep: 'Call POST /pet/accept-transfer/:petDID with signature and this proof',
       };
     } catch (error) {
-      console.error('ML 서버 비문 검증 실패:', error);
+      console.error('❌ [verify-transfer] ML 서버 비문 검증 실패:', error);
+      console.error('❌ [verify-transfer] Error details:', {
+        message: error.message,
+        stack: error.stack,
+        response: error.response?.data
+      });
       throw new BadRequestException('비문 검증에 실패했습니다.');
     }
   }
@@ -504,11 +518,12 @@ export class PetController {
   /**
    * 소유권 이전 Step 3: 새 보호자 수락 (서명 + 비문 검증 증명과 함께)
    */
-  @Post('accept-transfer/:petDID')
+  @Post('accept-transfer/:petDID/:adoptionId')
   @UseGuards(DIDAuthGuard)
   @ApiOperation({ summary: '펫 소유권 이전 수락 (새 보호자)' })
   async acceptTransfer(
     @Param('petDID') petDID: string,
+    @Param('adoptionId') adoptionId: number,
     @Req() req: Request,
     @Body() dto: AcceptTransferDto
   ) {
@@ -549,8 +564,14 @@ export class PetController {
     );
 
     if (!txResult.success) {
-      return txResult;
+      return {
+        success: false,
+        error: 'Pet transfer failed',
+        details: txResult
+      };
     }
+
+    console.log(`✅ Pet transfered on blockchain: ${petDID} - TxHash: ${txResult.txHash}`);
 
     // 4. Sync GuardianRegistry - Queue for async processing (서버가 adminSigner로 자동 처리)
     const previousGuardian = dto.message.previousGuardian;
@@ -573,6 +594,12 @@ export class PetController {
       dto.petData
     );
     console.log(`📝 Queued VC transfer job - Job ID: ${vcTransferJobId}`);
+
+      // 10. Spring 서버 동기화 큐 등록
+    const springJobId = await this.springService.queueTransferPet(
+      adoptionId
+    );
+    console.log(`✅ Queued Spring sync - Job ID: ${springJobId}`);
 
     return {
       success: true,

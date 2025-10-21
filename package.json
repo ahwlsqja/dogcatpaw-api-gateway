@@ -59,6 +59,7 @@
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.2",
     "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "uuid": "^9.0.1",
     "web3-token": "^1.0.6"
   },

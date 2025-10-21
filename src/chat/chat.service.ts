@@ -64,14 +64,17 @@ export class ChatService {
       // Spring 서버 권한 체크 API 호출
       const response = await this.springProxyService.proxyToSpring(
         'get',
-        '/api/chat/room/check-permission',
+        '/api/chat/room/permission',
         undefined,
-        { roomId, walletAddress },
+        { roomId },
+        walletAddress
       );
 
-      this.logger.debug(`Permission check result: room ${roomId}, user ${walletAddress}, canJoin=${response.canJoin}`);
+      // Spring 응답 구조: { result: { canJoin: true } }
+      const canJoin = response?.result?.canJoin || response?.canJoin;
+      this.logger.debug(`Permission check result: room ${roomId}, user ${walletAddress}, canJoin=${canJoin}`);
 
-      return response.canJoin === true;
+      return canJoin === true;
     } catch (error) {
       this.logger.error(`Failed to check room permission: ${error.message}`);
       // 에러 시 안전하게 false 반환 (권한 없음)
@@ -100,7 +103,7 @@ export class ChatService {
         `User ${walletAddress} entered room ${roomId}, retrieved ${response?.length || 0} messages`
       );
 
-      return response || [];
+      return response.result || [];
     } catch (error) {
       this.logger.error(`Failed to enter room ${roomId}: ${error.message}`);
       // 에러 시 빈 배열 반환 (입장은 허용하되 히스토리 조회 실패)

@@ -6,10 +6,8 @@ import { SpringService } from './spring.service';
 import { SpringProxyService } from './spring.proxy.service';
 import { VcProxyService } from '../vc/vc.proxy.service';
 import { SpringAuthGuard } from '../auth/guard/spring-auth-guard';
-import { Public } from '../auth/decorator/public.decorator';
 
 // Import DTOs
-import { VcSyncDto } from './dto/vc-sync.dto';
 import { CreateAdoptionPostDto } from './dto/adoption.dto';
 import { CreateDailyStoryDto, CreateReviewStoryDto } from './dto/story.dto';
 import { WriteCommentDto } from './dto/comment.dto';
@@ -21,9 +19,7 @@ import { WalletAddress } from 'src/auth/decorator/wallet-address.decorator';
 @Controller('api')
 export class SpringController {
   constructor(
-    private readonly springService: SpringService,
     private readonly springProxyService: SpringProxyService,
-    private readonly vcProxyService: VcProxyService,
   ) {}
 
   // ==================== Spring API Proxy Endpoints ====================
@@ -83,6 +79,16 @@ export class SpringController {
   @ApiOperation({ summary: 'Create adoption post (입양 게시 작성)' })
   async createAdoptionPost(@Body() dto: CreateAdoptionPostDto, @WalletAddress() walletAddress: string) {
     return this.springProxyService.createAdoptionPost(dto, walletAddress);
+  }
+
+  // 입양 공고 작성
+  @Post('adoption/:adoptionId/complete')
+  @UseGuards(SpringAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create adoption post (입양 게시 작성)' })
+  @ApiParam({ name: 'adoptionId', type: Number })
+  async finalizeAdoption(@Param('adoptionId', ParseIntPipe) adoptionId: number, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.finalizeAdoption(adoptionId, walletAddress);
   }
 
   // ========== Daily Story API ==========
@@ -219,8 +225,8 @@ export class SpringController {
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create chat room (채팅방 만들기)' })
-  async createChatRoom(@Body() dto: CreateChatRoomDto, @Headers() headers: any) {
-    return this.springProxyService.createChatRoom(dto, headers);
+  async createChatRoom(@Body() dto: CreateChatRoomDto, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.createChatRoom(dto, walletAddress);
   }
 
   @Get('chat/room/list')
@@ -238,9 +244,10 @@ export class SpringController {
   @ApiQuery({ name: 'roomId', required: true, type: Number })
   async getChatRoomCard(
     @Query('roomId', ParseIntPipe) roomId: number,
-    @Headers() headers: any
+    @Req() req: Request
   ) {
-    return this.springProxyService.getChatRoomCard(roomId, headers);
+    const walletAddress = req.user?.address;
+    return this.springProxyService.getChatRoomCard(roomId, walletAddress);
   }
 
   @Post('chat/:roomId/enter')
@@ -262,9 +269,10 @@ export class SpringController {
   @ApiParam({ name: 'roomId', type: Number })
   async getChatAdoptionInfo(
     @Param('roomId', ParseIntPipe) roomId: number,
-    @Headers() headers: any
+    @Req() req: Request
   ) {
-    return this.springProxyService.getChatAdoptionInfo(roomId, headers);
+    const walletAddress = req.user?.address;
+    return this.springProxyService.getChatAdoptionInfo(roomId, walletAddress);
   }
 
   // ========== Donation Management API ==========
@@ -357,5 +365,25 @@ export class SpringController {
   @ApiOperation({ summary: 'Approve payment (뼈다귀 서비스 승인)' })
   async approvePayment(@Body() dto: ApprovePaymentDto, @Headers() headers: any) {
     return this.springProxyService.approvePayment(dto, headers);
+  }
+
+  // ========== Admin API ==========
+
+  /**
+   * Get all members with pagination (Admin only)
+   * Cursor-based pagination for efficient data retrieval
+   */
+  @Get('admin')
+  @ApiBearerAuth()
+  @UseGuards(SpringAuthGuard)
+  @ApiOperation({ summary: 'Get all members with pets (Admin only - 관리자 전용 회원 조회)' })
+  @ApiQuery({ name: 'cursor', required: false, type: String, description: 'Cursor for pagination (ISO date-time string)' })
+  @ApiQuery({ name: 'size', required: false, type: Number, description: 'Number of items per page (default: 10)' })
+  async getAdminMembers(
+    @WalletAddress() walletAddress: string,
+    @Query('cursor') cursor?: string,
+    @Query('size') size?: number,
+  ) {
+    return this.springProxyService.getAdminMembers(cursor, size, walletAddress);
   }
 }

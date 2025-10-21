@@ -9,6 +9,7 @@ import { VcQueueService } from 'src/vc/vc-queue.service';
 import { SpringService } from 'src/spring/spring.service';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { ethers } from 'ethers';
+import { Role } from 'src/common/enums/role.enum';
 
 @ApiTags('Guardian')
 @ApiBearerAuth()
@@ -99,21 +100,47 @@ export class GuardianController {
       );
       console.log(`📝 Queued VC sync - Job ID: ${vcJobId}`);
 
-      // 🚀 Queue Spring sync (fire & forget)
-      const springJobId = await this.springService.queueUserRegister(
-        guardianAddress,
-        {
-          email: dto.email,
-          phone: dto.phone,
-          name: dto.name,
-          gender: dto.gender,
-          old: dto.old,
-          address: dto.address,
-        }
-      );
+      if(dto.role === Role.USER){
+        // 🚀 Queue Spring sync (fire & forget)
+        const springJobId = await this.springService.queueUserRegister(
+          guardianAddress,
+          {
+            email: dto.email,
+            phone: dto.phone,
+            name: dto.name,
+            gender: dto.gender,
+            old: dto.old,
+            address: dto.address,
+          }
+        );
+        console.log(`📝 Queued Spring registration - Job ID: ${springJobId}`);
+
+              // 즉시 프론트로 응답 반환
+        return {
+          success: true,
+          authId: authCheck.authId,
+          txHash: txResult.txHash,
+          blockNumber: txResult.blockNumber,
+          vcJobId,
+          springJobId,
+          message: 'Guardian registered on blockchain. Syncing data in background.',
+        };
+      } else {
+        // 🚀 Queue Spring sync (fire & forget)
+        const springJobId = await this.springService.queueAdminRegister(
+          guardianAddress,
+          {
+            email: dto.email,
+            phone: dto.phone,
+            name: dto.name,
+            gender: dto.gender,
+            old: dto.old,
+            address: dto.address,
+          }
+        );
       console.log(`📝 Queued Spring registration - Job ID: ${springJobId}`);
 
-      // 즉시 프론트로 응답 반환
+            // 즉시 프론트로 응답 반환
       return {
         success: true,
         authId: authCheck.authId,
@@ -123,6 +150,7 @@ export class GuardianController {
         springJobId,
         message: 'Guardian registered on blockchain. Syncing data in background.',
       };
+      }
     }
 
     return txResult;

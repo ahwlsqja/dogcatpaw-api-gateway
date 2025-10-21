@@ -27,14 +27,14 @@ const RPC_URL = 'http://besu-networ-besu-rpc-ext-43e7a-108790139-4b974a576079.kr
 
 // User A (입양 공고 글쓴이)
 const USER_A = {
-  address: '0x38fe5a8c06eacc95f599dfc469e4882cf9318e91',
-  privateKey: '5ead52e4cd26a53d2abe1c40b0552cc8b5872c133a2c635205bdf470cbfadbff',
+  address: '0xe9ebc691ccfb15cb4bf31af83c624b7020f0d2c0',
+  privateKey: '960e72438dadcd8a559b922388616d7c352ea1de901ad61644dcc753642eea6b',
 };
 
 // User B (입양 희망자) - 실제 값으로 변경 필요
 const USER_B = {
-  address: '0xYOUR_WALLET_ADDRESS_HERE',  // ← 변경 필요
-  privateKey: 'YOUR_PRIVATE_KEY_HERE',     // ← 변경 필요
+  address: '0x9c34c486ae5fc0def0ec9cd138ddc55e96f0d5e0',  // ← 변경 필요
+  privateKey: '2cdce846f97c8ba42c54a78e2310c4cead926d1d694f00e220ecf23566f96e06',     // ← 변경 필요
 };
 
 // ============================================
@@ -82,6 +82,11 @@ async function login(user) {
   });
   const challengeData = await challengeResponse.json();
 
+  if (!challengeResponse.ok || !challengeData.challenge) {
+    console.error('❌ Challenge 요청 실패:', JSON.stringify(challengeData, null, 2));
+    throw new Error(`Challenge failed: ${challengeData.message || 'Unknown error'}`);
+  }
+
   // Challenge 서명
   const challengeSignature = await wallet.signMessage(challengeData.challenge);
 
@@ -110,6 +115,11 @@ async function login(user) {
     })
   });
   const loginData = await loginResponse.json();
+
+  if (!loginResponse.ok || !loginData.accessToken) {
+    console.error('❌ 로그인 실패:', JSON.stringify(loginData, null, 2));
+    throw new Error(`Login failed: ${loginData.message || 'No access token received'}`);
+  }
 
   return loginData.accessToken;
 }
@@ -156,22 +166,40 @@ async function runIntegrationTest() {
       process.exit(1);
     }
 
-    const petId = myPetsResponse.data.result[0].petId;
+    const petId = myPetsResponse.data.result[myPetsResponse.data.result.length - 1].petId;
     logInfo(`User A의 Pet ID: ${petId}`);
 
     // 입양 공고 작성
     const adoptionPostData = {
       petId: petId,
       title: '사랑스러운 골든 리트리버 입양 공고',
-      images: 'https://example.com/dog1.jpg,https://example.com/dog2.jpg',
       content: '건강하고 활발한 골든 리트리버를 입양 보내려고 합니다.',
-      region: '서울',
+      region: 'SEOUL',
       district: '강남구',
       shelterName: '서울시 동물보호센터',
       contact: '010-1234-5678',
-      deadLine: '2025-12-31T23:59:59.000Z',
-      status: 'AVAILABLE'
+      deadLine: '2025-12-31',
+      status: 'ACTIVE',
+      images: 'https://example.com/dog1.jpg,https://example.com/dog2.jpg'
     };
+
+    /**
+     * {
+  "petId": 0,
+  "title": "string",
+  "content": "string",
+  "region": "SEOUL",
+  "district": "string",
+  "shelterName": "string",
+  "contact": "string",
+  "deadLine": "2025-10-21",
+  "status": "ACTIVE",
+  "images": "string"
+}
+     * 
+     * 
+     * 
+     */
 
     const createAdoptionResponse = await axios.post(
       `${API_BASE_URL}/api/adoption/post`,
@@ -220,9 +248,14 @@ async function runIntegrationTest() {
     // ==========================================
     logStep(5, 'User B - WebSocket 채팅방 입장');
 
+    logInfo(`WebSocket URL: ${API_BASE_URL}/chat`);
+    logInfo(`Token (처음 30자): ${userBToken.substring(0, 30)}...`);
+
     socketB = io(`${API_BASE_URL}/chat`, {
       auth: { token: userBToken },
       transports: ['websocket'],
+      reconnection: false,
+      timeout: 10000,
     });
 
     await new Promise((resolve, reject) => {
@@ -233,10 +266,22 @@ async function runIntegrationTest() {
 
       socketB.on('connect_error', (error) => {
         logError('User B Socket 연결 실패', error);
+        console.error('상세 에러:', {
+          message: error.message,
+          description: error.description,
+          context: error.context,
+          type: error.type,
+          data: error.data
+        });
         reject(error);
       });
 
-      setTimeout(() => reject(new Error('Socket 연결 타임아웃')), 5000);
+      socketB.on('error', (error) => {
+        logError('User B Socket 에러 이벤트', error);
+        console.error('에러 상세:', error);
+      });
+
+      setTimeout(() => reject(new Error('Socket 연결 타임아웃 (10초)')), 10000);
     });
 
     // 채팅방 입장 (메시지 히스토리 자동 조회)
@@ -340,7 +385,7 @@ async function runIntegrationTest() {
           if (response.messages.length > 0) {
             console.log('📜 메시지 히스토리:');
             response.messages.forEach((msg, idx) => {
-              console.log(`  ${idx + 1}. [${msg.senderId}] ${msg.message} (읽음: ${msg.isRead})`);
+              console.log(`  ${idx + 1}. [${msg.senderId}] ${msg.message} (읽음: ${msg.read})`);
             });
           }
 

@@ -9,6 +9,7 @@ import { Public } from './decorator/public.decorator';
 import { TokenService } from './services/token.service';
 import { ConfigService } from '@nestjs/config';
 import { envVariableKeys } from 'src/common/const/env.const';
+import { SpringProxyService } from 'src/spring/spring.proxy.service';
 
 @ApiTags('Authentication')
 @Controller('api/auth')
@@ -17,7 +18,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly vcProxyService: VcProxyService,
     private readonly tokenService: TokenService,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
   ) {}
 
   /**

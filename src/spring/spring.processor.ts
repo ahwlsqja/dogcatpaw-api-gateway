@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { Job } from 'bull';
 import { firstValueFrom } from 'rxjs';
 import { VcProxyService } from 'src/vc/vc.proxy.service';
+import { Role } from 'src/common/enums/role.enum';
 
 export interface UserSyncJob {
   walletAddress: string;
@@ -24,10 +25,7 @@ export interface UserRegisterJob {
 }
 
 export interface PetTransferJob {
-  petDID: string;
-  previousOwner: string;
-  newOwner: string;
-  transferredAt: Date;
+  adoptionId: number
 }
 
 export interface VPDeliveryJob {
@@ -72,15 +70,18 @@ export class SpringProcessor {
 
   @OnQueueActive()
   onActive(job: Job) {
-    if (job.name === 'register') {
+    if (job.name === 'register-user') {
       const data = job.data as UserRegisterJob;
       this.logger.log(`Processing job ${job.id} - Registering user ${data.walletAddress} to Spring`);
+    } else if (job.name === 'register-admin') {
+      const data = job.data as UserRegisterJob;
+      this.logger.log(`Processing job ${job.id} - Registering admin ${data.walletAddress} to Spring`)
     } else if (job.name === 'sync-user') {
       const data = job.data as UserSyncJob;
       this.logger.log(`Processing job ${job.id} - Syncing user ${data.walletAddress} to Spring (${data.action})`);
-    } else if (job.name === 'sync-transfer') {
+    } else if (job.name === 'sync-pet-transfer') {
       const data = job.data as PetTransferJob;
-      this.logger.log(`Processing job ${job.id} - Syncing pet transfer for ${data.petDID}`);
+      this.logger.log(`Processing job ${job.id} - Syncing pet transfer for ${data.adoptionId}`);
     } else if (job.name === 'deliver-vp') {
       const data = job.data as VPDeliveryJob;
       this.logger.log(`Processing job ${job.id} - Delivering VP for ${data.walletAddress}`);
@@ -107,7 +108,7 @@ export class SpringProcessor {
    * Register new user to Spring server (signup)
    * Maps guardian DTO fields to Spring API /api/auth/signup
    */
-  @Process('register')
+  @Process('register-user')
   async handleUserRegister(job: Job<UserRegisterJob>) {
     const {
       walletAddress,
@@ -132,6 +133,66 @@ export class SpringProcessor {
         address: address || '',
         phoneNumber: phone || '',
         type: 'GUARDIAN',
+        role: Role.USER,
+        email: email || '',
+      };
+
+      this.logger.debug(`Registering user to Spring: ${JSON.stringify(signupData)}`);
+
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `${this.springBaseUrl}/api/auth/signup`,
+          signupData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Gateway': 'dogcatpaw',
+            }
+          }
+        )
+      );
+
+      const duration = Date.now() - startTime;
+      this.logger.log(`✅ User registration to Spring took ${duration}ms for ${walletAddress}`);
+
+      return {
+        success: true,
+        walletAddress,
+        springResponse: response.data,
+        duration
+      };
+    } catch (error) {
+      this.logger.error(`❌ Spring registration error for ${walletAddress}:`, error.message);
+      throw error; // Bull will retry
+    }
+  }
+
+  @Process('register-admin')
+  async handleAdminRegister(job: Job<UserRegisterJob>) {
+    const {
+      walletAddress,
+      email,
+      phone,
+      name,
+      gender,
+      old,
+      address
+    } = job.data;
+
+    try {
+      const startTime = Date.now();
+
+      // Map guardian DTO fields to Spring API signup fields
+      const signupData = {
+        walletAddress,
+        username: name || walletAddress?.substring(0, 10) || 'unknown',
+        nickname: name || walletAddress?.substring(0, 8) || 'unknown',
+        gender: gender || '',
+        old: old || 0,
+        address: address || '',
+        phoneNumber: phone || '',
+        type: 'GUARDIAN',
+        role: Role.ADMIN,
         email: email || '',
       };
 
@@ -222,26 +283,16 @@ export class SpringProcessor {
   /**
    * Sync pet ownership transfer to Spring
    */
-  @Process('sync-transfer')
+  @Process('sync-pet-transfer')
   async handleTransferSync(job: Job<PetTransferJob>) {
-    const { petDID, previousOwner, newOwner, transferredAt } = job.data;
+    const { adoptionId } = job.data;
 
     try {
       const startTime = Date.now();
 
-      // Prepare transfer notification for Spring
-      const transferData = {
-        petDID,
-        previousOwner,
-        newOwner,
-        transferredAt,
-        notificationType: 'ownership_transfer',
-      };
-
       const response = await firstValueFrom(
         this.httpService.post(
-          `${this.springBaseUrl}/api/pets/ownership-transfer`,
-          transferData,
+          `${this.springBaseUrl}/api/adoption/${adoptionId}/complete`,
           {
             headers: {
               'Content-Type': 'application/json',
@@ -252,16 +303,16 @@ export class SpringProcessor {
       );
 
       const duration = Date.now() - startTime;
-      this.logger.debug(`Transfer sync took ${duration}ms for pet ${petDID}`);
+      this.logger.debug(`Transfer sync took ${duration}ms for pet ${adoptionId}`);
 
       return {
         success: true,
-        petDID,
+        adoptionId,
         duration,
         springResponse: response.data
       };
     } catch (error) {
-      this.logger.error(`Transfer sync error for ${petDID}:`, error.message);
+      this.logger.error(`Transfer sync error for ${adoptionId}:`, error.message);
       throw error;
     }
   }

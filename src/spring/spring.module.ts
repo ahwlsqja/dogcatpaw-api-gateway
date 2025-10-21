@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bull';
 import { HttpModule } from '@nestjs/axios';
 import { SpringService } from './spring.service';
@@ -7,12 +7,13 @@ import { SpringController } from './spring.controller';
 import { SpringProcessor } from './spring.processor';
 import { VcModule } from 'src/vc/vc.module';
 import { AuthModule } from 'src/auth/auth.module';
+import { RoleBasedGuard } from 'src/admin/guard/role-based.guard';
 
 @Module({
   imports: [
     HttpModule,
     VcModule,
-    AuthModule,
+    forwardRef(() => AuthModule),
     BullModule.registerQueue({
       name: 'spring-sync',
       defaultJobOptions: {
@@ -27,7 +28,7 @@ import { AuthModule } from 'src/auth/auth.module';
     }),
   ],
   controllers: [SpringController],
-  providers: [SpringService, SpringProxyService, SpringProcessor],
+  providers: [SpringService, SpringProxyService, SpringProcessor, RoleBasedGuard],
   exports: [SpringService, SpringProxyService],
 })
 export class SpringModule {}

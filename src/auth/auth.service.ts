@@ -364,12 +364,14 @@ export class AuthService {
     address: string;
     isGuardian: boolean;
     vcCount: number;
+    role?: number; // Optional role parameter
   }): Promise<string> {
     const token = this.jwtService.sign(
       {
         address: payload.address,
         isGuardian: payload.isGuardian,
         vcCount: payload.vcCount,
+        role: payload.role, // Include role in token
         type: 'access',
       },
       {

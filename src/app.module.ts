@@ -21,6 +21,7 @@ import { NoseEmbedderModule } from './nose-embedding/nose-embedding.module';
 import { envVariableKeys } from './common/const/env.const';
 import { AdminModule } from './admin/admin.module';
 import { IndexerModule } from './indexer/indexer.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { IndexerModule } from './indexer/indexer.module';
     NoseEmbedderModule,
     AdminModule,
     IndexerModule,
+    ChatModule,
   ],
   providers: [{
     provide: APP_INTERCEPTOR,

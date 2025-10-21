@@ -2,13 +2,13 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder } from '@nestjs/swagger';
 import { SwaggerModule } from '@nestjs/swagger';
-// import { WsAuthAdapter } from './chat/adapter/ws-auth.adapter';
+import { WsAuthAdapter } from './chat/adapter/ws-auth.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // WebSocket VP 인증 어댑터 설정
-  // app.useWebSocketAdapter(new WsAuthAdapter(app));
+  app.useWebSocketAdapter(new WsAuthAdapter(app));
 
   // CORS 활성화(옵션, 클라이언트 웹 개발시 필요)
   app.enableCors();

@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsNumber, IsEthereumAddress, IsEmail } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsEthereumAddress, IsEmail, IsEnum } from 'class-validator';
+import { Role } from 'src/common/enums/role.enum';
 
 export class CreateGuardianDto {
   @ApiPropertyOptional({
@@ -9,6 +10,14 @@ export class CreateGuardianDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  @ApiProperty({
+    description: "ROLE",
+    example: "ADMIN"
+  })
+  @IsOptional()
+  @IsEnum(Role, { message: "롤을 정해주세여"})
+  role?: Role;
 
   @ApiPropertyOptional({
     description: '전화번호',

@@ -42,11 +42,19 @@ export class SpringProxyService {
   ) {
     console.log(headers)
     try {
+      // headers가 문자열이면 그대로 사용, 객체면 authorization에서 지갑 주소 추출 시도
+      let walletAddress = headers;
+      if (typeof headers === 'object' && headers !== null) {
+        // headers 객체에서 authorization 토큰을 통해 지갑 주소 추출 불가능
+        // 이 경우 headers는 잘못 전달된 것이므로 undefined 처리
+        walletAddress = undefined;
+      }
+
       const config = {
         headers: {
           'Content-Type': 'application/json',
           'X-API-Gateway': 'dogcatpaw',
-          'X-Wallet-Address': headers,
+          'X-Wallet-Address': walletAddress,
         },
         params: queryParams
       };
@@ -80,6 +88,31 @@ export class SpringProxyService {
     }
   }
 
+  // ==================== Member API ====================
+  /**
+   * Get member role from Spring backend
+   * @param walletAddress - Wallet address of the member
+   * @returns Role information (ADMIN or USER)
+   */
+  async getMemberRole(walletAddress: string) {
+    return this.proxyToSpring('get', '/api/member/role', undefined, undefined, walletAddress);
+  }
+
+  // ==================== Admin API ====================
+  /**
+   * Get all members with pagination (Admin only)
+   * @param cursor - Cursor for pagination (ISO date-time string)
+   * @param size - Number of items per page (default: 10)
+   * @returns Paginated list of members with their pets
+   */
+  async getAdminMembers(cursor?: string, size?: number, headers?: any) {
+    const queryParams: any = {};
+    if (cursor) queryParams.cursor = cursor;
+    if (size !== undefined) queryParams.size = size;
+
+    return this.proxyToSpring('get', '/api/admin', undefined, queryParams, headers);
+  }
+
   // ==================== Pet API ====================
   async getMyPets(headers?: any) {
     console.log(headers)
@@ -111,6 +144,11 @@ export class SpringProxyService {
   // 연결 완료
   async createAdoptionPost(data: CreateAdoptionPostDto, headers?: any) {
     return this.proxyToSpring('post', '/api/adoption/post', data, undefined, headers);
+  }
+
+  // 펫 이전
+  async finalizeAdoption(adoptionId: number, headers?: any) {
+    return this.proxyToSpring('post', `/api/adoption/${adoptionId}/complete`, undefined, { adoptionId }, headers);
   }
 
   // ==================== Daily Story API ====================

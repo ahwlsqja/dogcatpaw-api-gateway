@@ -35,7 +35,7 @@ export class SpringService {
       address?: string;
     }
   ) {
-    const job = await this.springQueue.add('register', {
+    const job = await this.springQueue.add('register-user', {
       walletAddress,
       email: guardianDto.email,
       phone: guardianDto.phone,
@@ -48,6 +48,33 @@ export class SpringService {
     });
 
     this.logger.log(`Queued user registration job ${job.id} for ${walletAddress}`);
+    return job.id;
+  }
+
+  async queueAdminRegister(
+    walletAddress: string,
+    guardianDto: {
+      email?: string;
+      phone?: string;
+      name?: string;
+      gender?: string;
+      old?: number;
+      address?: string;
+    }
+  ) {
+    const job = await this.springQueue.add('register-admin', {
+      walletAddress,
+      email: guardianDto.email,
+      phone: guardianDto.phone,
+      name: guardianDto.name,
+      gender: guardianDto.gender,
+      old: guardianDto.old,
+      address: guardianDto.address,
+    }, {
+      priority: 1,
+    });
+
+    this.logger.log(`Queued admin registration job ${job.id} for ${walletAddress}`);
     return job.id;
   }
 
@@ -143,6 +170,23 @@ export class SpringService {
     });
 
     this.logger.log(`Queued pet registration job ${job.id} for pet ${petDID}`);
+    return job.id;
+  }
+
+
+  /**
+   * Queue pet registration to Spring
+   */
+  async queueTransferPet(
+    adoptionId: number,
+  ) {
+    const job = await this.springQueue.add('sync-pet-transfer', {
+      adoptionId
+    }, {
+      priority: 1,
+    });
+
+    this.logger.log(`Queued pet tranfer job ${job.id} for pet ${adoptionId}`);
     return job.id;
   }
 

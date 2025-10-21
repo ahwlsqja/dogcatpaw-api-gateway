@@ -5,6 +5,7 @@ import {
   SubscribeMessage,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   ConnectedSocket,
   MessageBody,
 } from '@nestjs/websockets';
@@ -13,6 +14,9 @@ import { Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
 import { SendMessageDto, JoinRoomDto } from './dto/chat-message.dto';
 import { RedisService } from '../common/redis/redis.service';
+import { JwtService } from '@nestjs/jwt';
+import { TokenService } from '../auth/services/token.service';
+import { AuthService } from '../auth/auth.service';
 
 /**
  * WebSocket 채팅 게이트웨이
@@ -27,7 +31,7 @@ import { RedisService } from '../common/redis/redis.service';
     credentials: true,
   },
 })
-export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
@@ -37,9 +41,138 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly chatService: ChatService,
     private readonly redisService: RedisService,
+    private readonly jwtService: JwtService,
+    private readonly tokenService: TokenService,
+    private readonly authService: AuthService,
   ) {
     // Redis Subscriber 초기화
     this.initRedisSubscriber();
+  }
+
+  /**
+   * Gateway 초기화 후 호출 - 인증 미들웨어 적용
+   */
+  afterInit(server: Server) {
+    this.logger.log('ChatGateway initialized - Setting up authentication middleware');
+
+    // WebSocket 연결 시 인증 미들웨어
+    server.use(async (socket, next) => {
+      try {
+        this.logger.debug('WebSocket authentication middleware triggered');
+        const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.replace('Bearer ', '');
+
+        this.logger.debug(`Token received: ${token ? token.substring(0, 30) + '...' : 'none'}`);
+
+        if (!token) {
+          this.logger.warn('No token provided in WebSocket connection');
+          return next(new Error('Authentication token missing'));
+        }
+
+        // 1. 블록된 토큰 확인
+        const isBlocked = await this.tokenService.isTokenBlocked(token);
+        if (isBlocked) {
+          this.logger.warn(`Blocked token attempted WebSocket connection`);
+          return next(new Error('Token has been revoked'));
+        }
+
+        // 2. JWT 검증
+        let payload;
+        try {
+          payload = this.jwtService.verify(token);
+          this.logger.debug(`JWT verified for address: ${payload.address}`);
+        } catch (error) {
+          this.logger.error(`JWT verification failed: ${error.message}`);
+          return next(new Error('Invalid token'));
+        }
+
+        // 3. VP 검증 (캐시 우선)
+        const vpJwt = await this.tokenService.getVPForToken(token);
+        this.logger.debug(`VP JWT: ${vpJwt ? (vpJwt === 'EMPTY' ? 'EMPTY' : 'exists') : 'none'}`);
+
+        if (vpJwt && vpJwt !== 'EMPTY') {
+          // 3-1. 캐시된 VP 검증 결과 확인
+          const cachedVerification = await this.tokenService.getCachedVPVerification(token);
+
+          if (cachedVerification && cachedVerification.verified) {
+            this.logger.debug(`VP cache hit for WebSocket: ${payload.address}`);
+
+            socket.data.user = {
+              address: payload.address,
+              isGuardian: payload.isGuardian,
+              vpVerified: true,
+              vpHolder: cachedVerification.holder,
+              vcCount: cachedVerification.vcCount,
+            };
+
+            this.logger.log(`✅ WebSocket auth success (VP cached): ${payload.address}`);
+            return next();
+          }
+
+          // 3-2. Cache miss - Full VP verification
+          this.logger.debug(`VP cache miss for WebSocket: ${payload.address}`);
+
+          try {
+            const vpVerification = await this.authService.verifyPresentation(vpJwt);
+
+            if (!vpVerification || !vpVerification.verified) {
+              this.logger.warn(`VP verification failed for WebSocket`);
+              return next(new Error('VP verification failed'));
+            }
+
+            // VP holder 매칭 확인
+            const vpHolder = vpVerification.holder?.replace('did:ethr:besu:', '');
+            if (vpHolder?.toLowerCase() !== payload.address?.toLowerCase()) {
+              this.logger.warn(`VP holder mismatch: ${vpHolder} vs ${payload.address}`);
+              return next(new Error('VP holder mismatch'));
+            }
+
+            this.logger.log(`VP verified successfully for WebSocket: ${payload.address}`);
+
+            // 검증 결과 캐싱
+            await this.tokenService.cacheVPVerification(
+              token,
+              {
+                verified: true,
+                holder: vpVerification.holder,
+                vcCount: vpVerification.verifiableCredential?.length || 0,
+                verifiedAt: Date.now(),
+              },
+              3600, // 1 hour
+            );
+
+            socket.data.user = {
+              address: payload.address,
+              isGuardian: payload.isGuardian,
+              vpVerified: true,
+              vpHolder: vpVerification.holder,
+              vcCount: vpVerification.verifiableCredential?.length || 0,
+            };
+
+            this.logger.log(`✅ WebSocket auth success (VP verified): ${payload.address}`);
+            return next();
+          } catch (error) {
+            this.logger.error(`VP verification error: ${error.message}`);
+            return next(new Error(`VP verification error: ${error.message}`));
+          }
+        } else {
+          // VP 없음 - 허용하되 미인증 상태로 표시
+          this.logger.warn(`No VP found for WebSocket token`);
+
+          socket.data.user = {
+            address: payload.address,
+            isGuardian: payload.isGuardian,
+            vpVerified: false,
+          };
+
+          this.logger.log(`⚠️  WebSocket auth success (No VP): ${payload.address}`);
+          return next();
+        }
+      } catch (error) {
+        this.logger.error(`WebSocket authentication error: ${error.message}`);
+        this.logger.error(`Error stack: ${error.stack}`);
+        return next(new Error('Authentication failed'));
+      }
+    });
   }
 
   /**
@@ -60,8 +193,26 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           const roomId = channel.replace('nestjs:broadcast:', '');
           this.logger.debug(`Broadcasting message from Spring to room ${roomId}`);
 
+          // 메시지 파싱 (Spring에서 이중 직렬화된 경우 처리)
+          let parsedMessage = JSON.parse(message);
+
+          // 이중 직렬화된 경우 한 번 더 파싱
+          if (typeof parsedMessage === 'string') {
+            parsedMessage = JSON.parse(parsedMessage);
+          }
+
+          this.logger.debug(`Parsed broadcast message: ${JSON.stringify(parsedMessage)}`);
+
+          // 필드명 매핑 (chatSenderId -> senderId)
+          const messageData = {
+            senderId: parsedMessage.chatSenderId || parsedMessage.senderId,
+            message: parsedMessage.message,
+            roomId: parsedMessage.roomId,
+            createdAt: parsedMessage.createdAt || new Date().toISOString(),
+          };
+
           // Socket.io 방으로 브로드캐스트
-          this.server.to(`room:${roomId}`).emit('message', JSON.parse(message));
+          this.server.to(`room:${roomId}`).emit('message', messageData);
         }
       } catch (error) {
         this.logger.error(`Failed to broadcast message: ${error.message}`);
@@ -77,8 +228,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleConnection(client: Socket) {
     const user = client.data.user;
 
+    this.logger.debug(`handleConnection called for client ${client.id}`);
+    this.logger.debug(`client.data: ${JSON.stringify(client.data)}`);
+
     if (!user) {
-      this.logger.warn(`Unauthorized connection attempt`);
+      this.logger.warn(`Unauthorized connection attempt - No user data found`);
       client.disconnect();
       return;
     }

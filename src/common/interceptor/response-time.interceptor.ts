@@ -21,10 +21,10 @@ import {
         tap(() => {
           const respTime = Date.now();
           const diff = respTime - reqTime;
-  
-          if (diff > 1000) {
-            console.log(`1!!!TIMEOUT!!! [${req.method} ${req.path}] ${diff}ms`);
-  
+
+          if (diff > 10000) {
+            console.log(`!!!TIMEOUT!!! [${req.method} ${req.path}] ${diff}ms`);
+
             throw new InternalServerErrorException(
               '시간이 너무 오래 걸렸습니다!!',
             );
