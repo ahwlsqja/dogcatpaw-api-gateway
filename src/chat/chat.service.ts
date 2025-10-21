@@ -20,38 +20,36 @@ export class ChatService {
   ) {}
 
   /**
-   * 메시지 브로드캐스트 (이벤트 기반)
+   * 메시지 브로드캐스트 (Spring 통합)
    *
    * 흐름:
-   * 1. NestJS: Redis publish
-   * 2. Spring Subscriber: Memory Queue에 추가
-   * 3. Spring Batch: DB 저장 (1초마다 또는 100개마다)
-   * 4. 모든 WebSocket 클라이언트: 실시간 수신
+   * 1. NestJS: Redis "chat" 채널에 publish (Spring 형식)
+   * 2. Spring: Redis 구독 → DB 저장 → "nestjs:broadcast:{roomId}" 재발행
+   * 3. NestJS: Redis 구독 → Socket.io로 클라이언트들에게 브로드캐스트
    */
   async sendMessage(
     walletAddress: string,
     dto: SendMessageDto,
-  ): Promise<ChatMessageDto> {
+  ): Promise<any> {
     try {
-      // 메시지 생성 (UUID 사용으로 일관성 보장)
-      const chatMessage: ChatMessageDto = {
-        messageId: Date.now(), // 임시 타임스탬프 ID
+      // Spring이 기대하는 형식으로 메시지 생성
+      const springMessage = {
         roomId: dto.roomId,
-        senderId: walletAddress,
-        senderName: walletAddress.substring(0, 10), // 닉네임은 Spring에서 처리
+        chatSenderId: walletAddress,  // Spring 형식: chatSenderId (지갑 주소)
         message: dto.message,
-        isRead: false,
-        createdAt: new Date(),
       };
 
-      // Redis Pub/Sub으로 브로드캐스트
-      // - NestJS Gateway: 실시간 클라이언트 전송
-      // - Spring Subscriber: Memory Queue → Batch DB 저장
-      await this.publishMessage(dto.roomId, chatMessage);
+      // Redis "chat" 채널로 발행 (Spring이 구독 중)
+      await this.redisService.publish('chat', JSON.stringify(springMessage));
 
-      this.logger.debug(`Message published to Redis: room ${dto.roomId}`);
+      this.logger.debug(`Message published to Spring: room ${dto.roomId}, sender ${walletAddress}`);
 
-      return chatMessage;
+      return {
+        roomId: dto.roomId,
+        chatSenderId: walletAddress,
+        message: dto.message,
+        timestamp: new Date(),
+      };
     } catch (error) {
       this.logger.error(`Failed to send message: ${error.message}`, error.stack);
       throw error;
@@ -59,32 +57,54 @@ export class ChatService {
   }
 
   /**
-   * Redis Pub/Sub으로 메시지 발행
-   */
-  private async publishMessage(roomId: number, message: ChatMessageDto): Promise<void> {
-    const channel = `chat:room:${roomId}`;
-    await this.redisService.publish(channel, JSON.stringify(message));
-    this.logger.debug(`Published message to channel: ${channel}`);
-  }
-
-  /**
-   * 채팅방 입장 권한 확인
+   * 채팅방 입장 권한 확인 (Spring API 호출)
    */
   async canJoinRoom(walletAddress: string, roomId: number): Promise<boolean> {
     try {
-      // Spring 서버에서 권한 확인
+      // Spring 서버 권한 체크 API 호출
       const response = await this.springProxyService.proxyToSpring(
         'get',
         '/api/chat/room/check-permission',
         undefined,
         { roomId, walletAddress },
-        { 'X-Wallet-Address': walletAddress }
       );
+
+      this.logger.debug(`Permission check result: room ${roomId}, user ${walletAddress}, canJoin=${response.canJoin}`);
 
       return response.canJoin === true;
     } catch (error) {
       this.logger.error(`Failed to check room permission: ${error.message}`);
+      // 에러 시 안전하게 false 반환 (권한 없음)
       return false;
+    }
+  }
+
+  /**
+   * 채팅방 입장 - 메시지 히스토리 조회 + 읽음 처리
+   *
+   * Spring의 enterRoom API를 호출하여:
+   * 1. 채팅방의 모든 메시지 조회
+   * 2. 읽지 않은 메시지를 읽음 처리 (markAsReadCount)
+   *
+   * @param walletAddress 사용자 지갑 주소
+   * @param roomId 채팅방 ID
+   * @returns 메시지 히스토리 배열
+   */
+  async enterRoom(walletAddress: string, roomId: number): Promise<any[]> {
+    try {
+      // Spring의 enterRoom API 호출
+      // POST /api/chat/{roomId}/enter
+      const response = await this.springProxyService.enterChatRoom(roomId, walletAddress);
+
+      this.logger.log(
+        `User ${walletAddress} entered room ${roomId}, retrieved ${response?.length || 0} messages`
+      );
+
+      return response || [];
+    } catch (error) {
+      this.logger.error(`Failed to enter room ${roomId}: ${error.message}`);
+      // 에러 시 빈 배열 반환 (입장은 허용하되 히스토리 조회 실패)
+      return [];
     }
   }
 }

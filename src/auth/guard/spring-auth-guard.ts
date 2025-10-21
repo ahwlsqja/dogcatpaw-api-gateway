@@ -50,7 +50,6 @@ export class SpringAuthGuard implements CanActivate {
     // 3. VP 검증 (One Session = One VP) - with caching
     // VP verification IS the session verification
     const vpJwt = await this.tokenService.getVPForToken(token);
-    console.log(vpJwt)
 
     if (vpJwt && vpJwt != "EMPTY") {
       try {

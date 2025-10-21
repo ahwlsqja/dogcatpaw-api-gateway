@@ -44,20 +44,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   /**
    * Redis Pub/Sub Subscriber 초기화
+   * Spring에서 "nestjs:broadcast:{roomId}" 채널로 발행한 메시지를 구독
    */
   private async initRedisSubscriber() {
     this.redisSubscriber = this.redisService.duplicate();
 
-    this.redisSubscriber.on('message', (channel: string, message: string) => {
-      // Redis에서 메시지 받으면 해당 방으로 브로드캐스트
-      if (channel.startsWith('chat:room:')) {
-        const roomId = channel.replace('chat:room:', '');
-        this.logger.debug(`Broadcasting message to room ${roomId}`);
-        this.server.to(`room:${roomId}`).emit('message', JSON.parse(message));
+    // 패턴 구독: nestjs:broadcast:* (모든 방)
+    this.redisSubscriber.psubscribe('nestjs:broadcast:*');
+
+    // 패턴 메시지 수신 핸들러
+    this.redisSubscriber.on('pmessage', (pattern: string, channel: string, message: string) => {
+      try {
+        // channel = "nestjs:broadcast:1"
+        if (channel.startsWith('nestjs:broadcast:')) {
+          const roomId = channel.replace('nestjs:broadcast:', '');
+          this.logger.debug(`Broadcasting message from Spring to room ${roomId}`);
+
+          // Socket.io 방으로 브로드캐스트
+          this.server.to(`room:${roomId}`).emit('message', JSON.parse(message));
+        }
+      } catch (error) {
+        this.logger.error(`Failed to broadcast message: ${error.message}`);
       }
     });
 
-    this.logger.log('Redis subscriber initialized for chat');
+    this.logger.log('Redis subscriber initialized for chat (nestjs:broadcast:* pattern)');
   }
 
   /**
@@ -85,7 +96,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   /**
    * 채팅방 입장
-   * TODO: 스프링으로 채팅방 입장 영속성 필요장 
+   *
+   * 흐름:
+   * 1. Spring API로 권한 확인 (chat_participant 테이블 확인)
+   * 2. Socket.io room 입장 (실시간 통신)
+   * 3. Spring API로 메시지 히스토리 조회 + 읽음 처리
+   * 4. 메시지 히스토리와 함께 응답
    */
   @SubscribeMessage('joinRoom')
   async handleJoinRoom(
@@ -99,24 +115,29 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     try {
-      // 권한 확인
+      // 1. Spring API로 권한 확인
       const canJoin = await this.chatService.canJoinRoom(user.address, dto.roomId);
 
       if (!canJoin) {
+        this.logger.warn(`User ${user.address} denied access to room ${dto.roomId}`);
         return { success: false, error: 'No permission to join this room' };
       }
 
-      // Socket.io 방 입장
+      // 2. Socket.io 방 입장 (실시간 통신)
       await client.join(`room:${dto.roomId}`);
 
-      // Redis 채널 구독
-      await this.redisSubscriber.subscribe(`chat:room:${dto.roomId}`);
+      // 3. Spring API로 메시지 히스토리 조회 + 읽음 처리
+      const messages = await this.chatService.enterRoom(user.address, dto.roomId);
 
-      this.logger.log(`User ${user.address} joined room ${dto.roomId}`);
+      this.logger.log(
+        `User ${user.address} joined room ${dto.roomId} with ${messages.length} messages`
+      );
 
+      // 4. 메시지 히스토리와 함께 응답
       return {
         success: true,
         message: `Joined room ${dto.roomId}`,
+        messages: messages,  // 메시지 히스토리 포함
       };
     } catch (error) {
       this.logger.error(`Failed to join room: ${error.message}`);
@@ -126,7 +147,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   /**
    * 채팅방 퇴장
-   * TODO: 스프링으로 채팅방 퇴장 영속성 필요장
+   * Socket.io room만 퇴장 (Redis는 패턴 구독이므로 개별 unsubscribe 불필요)
    */
   @SubscribeMessage('leaveRoom')
   async handleLeaveRoom(
@@ -142,9 +163,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       // Socket.io 방 퇴장
       await client.leave(`room:${dto.roomId}`);
-
-      // Redis 채널 구독 해제
-      await this.redisSubscriber.unsubscribe(`chat:room:${dto.roomId}`);
 
       this.logger.log(`User ${user.address} left room ${dto.roomId}`);
 

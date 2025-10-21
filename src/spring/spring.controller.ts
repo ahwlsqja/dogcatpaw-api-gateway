@@ -95,7 +95,7 @@ export class SpringController {
     return this.springProxyService.createDailyStory(dto, walletAddress);
   }
 
-  //
+  // 일상 일지 전체 조회
   @Get('story/daily/stories')
   @ApiOperation({ summary: 'Get all daily stories (최신 일상 글쓰기 전체 조회)' })
   @ApiQuery({ name: 'cursorId', required: false, type: Number })
@@ -107,16 +107,8 @@ export class SpringController {
     return this.springProxyService.getDailyStories({ cursorId, size });
   }
 
-  @Public()
-  @Get('story/daily/:stories')
-  @ApiOperation({ summary: 'Get single daily story (일상 글쓰기 하나 조회)' })
-  @ApiParam({ name: 'stories', type: Number })
-  async getDailyStory(@Param('stories', ParseIntPipe) storyId: number) {
-    return this.springProxyService.getDailyStory(storyId);
-  }
-
+  // 일상 일지 검색 (구체적인 경로를 먼저 정의)
   @Get('story/daily/search')
-  @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Search daily stories (일상 글쓰기 검색하기)' })
   @ApiQuery({ name: 'keyword', required: true, type: String })
@@ -126,22 +118,30 @@ export class SpringController {
     @Query('keyword') keyword: string,
     @Query('cursorId') cursorId?: number,
     @Query('size') size?: number,
-    @Headers() headers?: any,
   ) {
-    return this.springProxyService.searchDailyStories({ keyword, cursorId, size }, headers);
+    return this.springProxyService.searchDailyStories({ keyword, cursorId, size });
+  }
+
+  // 일상 일지 단일 조회 (파라미터 라우트는 마지막에)
+  @Get('story/daily/:stories')
+  @ApiOperation({ summary: 'Get single daily story (일상 글쓰기 하나 조회)' })
+  @ApiParam({ name: 'stories', type: Number })
+  async getDailyStory(@Param('stories', ParseIntPipe) storyId: number) {
+    return this.springProxyService.getDailyStory(storyId);
   }
 
   // ========== Adoption Review Story API ==========
 
+  // 입양 후기 작성
   @Post('story/review')
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create adoption review (입양 후기 게시 작성)' })
-  async createReviewStory(@Body() dto: CreateReviewStoryDto, @Headers() headers: any) {
-    return this.springProxyService.createReviewStory(dto, headers);
+  async createReviewStory(@Body() dto: CreateReviewStoryDto, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.createReviewStory(dto, walletAddress);
   }
 
-  @Public()
+  // 입양 후기 전체 조회
   @Get('story/review/reviews')
   @ApiOperation({ summary: 'Get all adoption reviews (최신 입양 후기 전체 조회)' })
   @ApiQuery({ name: 'cursorId', required: false, type: Number })
@@ -153,14 +153,7 @@ export class SpringController {
     return this.springProxyService.getReviewStories({ cursorId, size });
   }
 
-  @Public()
-  @Get('story/review/:reviews')
-  @ApiOperation({ summary: 'Get single adoption review (입양 후기 글 조회)' })
-  @ApiParam({ name: 'reviews', type: Number })
-  async getReviewStory(@Param('reviews', ParseIntPipe) reviewId: number) {
-    return this.springProxyService.getReviewStory(reviewId);
-  }
-
+  // 입양 후기 검색 (구체적인 경로를 먼저 정의)
   @Get('story/review/search')
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
@@ -169,12 +162,20 @@ export class SpringController {
   @ApiQuery({ name: 'cursorId', required: false, type: Number })
   @ApiQuery({ name: 'size', required: false, type: Number })
   async searchReviewStories(
+    @WalletAddress() walletAddress: string,
     @Query('keyword') keyword: string,
     @Query('cursorId') cursorId?: number,
     @Query('size') size?: number,
-    @Headers() headers?: any,
   ) {
-    return this.springProxyService.searchReviewStories({ keyword, cursorId, size }, headers);
+    return this.springProxyService.searchReviewStories({ keyword, cursorId, size }, walletAddress);
+  }
+
+  // 입양 후기 단일 조회 (파라미터 라우트는 마지막에)
+  @Get('story/review/:reviews')
+  @ApiOperation({ summary: 'Get single adoption review (입양 후기 글 조회)' })
+  @ApiParam({ name: 'reviews', type: Number })
+  async getReviewStory(@Param('reviews', ParseIntPipe) reviewId: number) {
+    return this.springProxyService.getReviewStory(reviewId);
   }
 
   // ========== Like and Comment API ==========
@@ -186,12 +187,11 @@ export class SpringController {
   @ApiQuery({ name: 'storyId', required: true, type: Number })
   async toggleLike(
     @Query('storyId', ParseIntPipe) storyId: number,
-    @Headers() headers: any
+    @WalletAddress() walletAddress: string
   ) {
-    return this.springProxyService.toggleLike(storyId, headers);
+    return this.springProxyService.toggleLike(storyId, walletAddress);
   }
 
-  @Public()
   @Get('comment')
   @ApiOperation({ summary: 'Get comments (댓글 조회)' })
   @ApiQuery({ name: 'storyId', required: true, type: Number })
@@ -209,8 +209,8 @@ export class SpringController {
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Write comment (댓글 작성)' })
-  async writeComment(@Body() dto: WriteCommentDto, @Headers() headers: any) {
-    return this.springProxyService.writeComment(dto, headers);
+  async writeComment(@Body() dto: WriteCommentDto, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.writeComment(dto, walletAddress);
   }
 
   // ========== Chat Room API ==========
@@ -277,7 +277,6 @@ export class SpringController {
     return this.springProxyService.createDonationPost(dto, headers);
   }
 
-  @Public()
   @Get('donation/list')
   @ApiOperation({ summary: 'Get all donation list (cursor-based) (폴더 - 전체 후원 리스트)' })
   @ApiQuery({ name: 'cursor', required: false, type: Number })
@@ -293,14 +292,12 @@ export class SpringController {
     return this.springProxyService.getDonationList({ cursor, size, breed, status });
   }
 
-  @Public()
   @Get('donation/closing')
   @ApiOperation({ summary: 'Get closing soon donations (홈화면 - 마감 임박 후원 3개)' })
   async getClosingSoonDonations() {
     return this.springProxyService.getClosingSoonDonations();
   }
 
-  @Public()
   @Get('donation')
   @ApiOperation({ summary: 'Get donation detail + donation history (후원 게시 글 및 정보 + 후원 내역 조회)' })
   @ApiQuery({ name: 'donationId', required: true, type: Number })
@@ -336,7 +333,7 @@ export class SpringController {
     return this.springProxyService.getMyDonationHistory({ cursor, size }, headers);
   }
 
-  @Get('donations/bone')
+  @Get('donations/bone/')
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get my bone balance (나의 후원 가능한 뼈다귀 조회)' })

@@ -4,8 +4,8 @@ const FormData = require('form-data');
 const fs = require('fs');
 const axios = require('axios');
 
-const WALLET_ADDRESS = '0xe9ebc691ccfb15cb4bf31af83c624b7020f0d2c0';
-const PRIVATE_KEY = '960e72438dadcd8a559b922388616d7c352ea1de901ad61644dcc753642eea6b';
+const WALLET_ADDRESS = '0x38fe5a8c06eacc95f599dfc469e4882cf9318e91';
+const PRIVATE_KEY = '5ead52e4cd26a53d2abe1c40b0552cc8b5872c133a2c635205bdf470cbfadbff';
 const API_BASE_URL = 'http://localhost:3000';
 const RPC_URL = 'http://besu-networ-besu-rpc-ext-43e7a-108790139-4b974a576079.kr.lb.naverncp.com:8545';
 
@@ -70,7 +70,7 @@ async function registerPetProduction() {
     console.log('📝 Step 2: Prepare Registration (get signing data)');
     console.log('═══════════════════════════════════════════════════════════\n');
 
-    const noseImagePath = process.argv[2] || './test-nose-image9.jpg';
+    const noseImagePath = process.argv[2] || './test-nose-image10.jpg';
     if (!fs.existsSync(noseImagePath)) {
       console.error('\n❌ Error: Nose image file not found!');
       console.log('Usage: node test-register-pet-production.js <path_to_nose_image>');
