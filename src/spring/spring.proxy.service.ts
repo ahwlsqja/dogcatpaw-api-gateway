@@ -205,7 +205,7 @@ export class SpringProxyService {
   }
 
   async getChatRoomList(headers?: any) {
-    return this.proxyToSpring('get', '/api/chat/room/list', undefined, undefined, headers);
+    return this.proxyToSpring('get', '/api/chat/room/list', undefined, undefined, undefined);
   }
 
   async getChatRoomCard(roomId: number, headers?: any) {

@@ -35,6 +35,7 @@ lerna-debug.log*
 /frontendguide
 /scripts
 /spring-chatting
+/frontend-guide
 
 # IDE - VSCode
 .vscode/*

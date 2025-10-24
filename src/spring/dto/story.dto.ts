@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsNumber } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
 
 export class CreateDailyStoryDto {
   @ApiProperty({ description: 'Pet ID' })
@@ -16,6 +16,11 @@ export class CreateDailyStoryDto {
   @IsString()
   @IsNotEmpty()
   content: string;
+
+  @ApiProperty({ description: 'Image URLs (comma-separated)', required: false })
+  @IsString()
+  @IsOptional()
+  images?: string;
 }
 
 export class CreateReviewStoryDto {
@@ -43,4 +48,9 @@ export class CreateReviewStoryDto {
   @IsString()
   @IsNotEmpty()
   adoptionDate: string;
+
+  @ApiProperty({ description: 'Image URLs (comma-separated)', required: false })
+  @IsString()
+  @IsOptional()
+  images?: string;
 }

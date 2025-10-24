@@ -23,6 +23,24 @@ message NoseImageRequest {
   string image_format = 2;
 }
 
+// ML 에러 코드 (API Gateway와 공유)
+enum MLErrorCode {
+  // 4xxx: 재시도 불가능한 클라이언트 에러
+  INVALID_IMAGE = 0;              // ML_4001
+  IMAGE_TOO_LARGE = 1;            // ML_4002
+  INVALID_IMAGE_FORMAT = 2;       // ML_4003
+  VECTOR_NOT_FOUND = 3;           // ML_4004
+  VECTOR_DIMENSION_MISMATCH = 4;  // ML_4005
+  INVALID_REQUEST = 5;            // ML_4006
+
+  // 5xxx: 재시도 가능한 서버 에러
+  MODEL_NOT_LOADED = 6;           // ML_5001
+  INFERENCE_ERROR = 7;            // ML_5002
+  STORAGE_CONNECTION_ERROR = 8;   // ML_5003
+  INTERNAL_SERVER_ERROR = 9;      // ML_5004
+  SERVICE_UNAVAILABLE = 10;       // ML_5005
+}
+
 // 추출된 특징 벡터를 담은 응답 메시지
 message NoseVectorResponse {
   // 특징 벡터 (임베딩)
@@ -36,6 +54,12 @@ message NoseVectorResponse {
 
   // 에러 메시지 (실패시)
   string error_message = 4;
+
+  // 에러 코드 (실패시, 선택사항)
+  optional MLErrorCode error_code = 5;
+
+  // 재시도 가능 여부
+  optional bool retryable = 6;
 }
 
 // 헬스체크 요청
@@ -86,4 +110,10 @@ message CompareVectorsResponse {
 
   // 새 이미지의 벡터 차원
   int32 vector_size = 6;
+
+  // 에러 코드 (실패시, 선택사항)
+  optional MLErrorCode error_code = 7;
+
+  // 재시도 가능 여부
+  optional bool retryable = 8;
 }

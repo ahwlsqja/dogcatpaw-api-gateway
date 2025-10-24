@@ -1,5 +1,5 @@
 // api-gateway/src/spring/spring.controller.ts
-import { Controller, Post, Get, Body, Param, UseGuards, Req, Query, Headers, ParseIntPipe } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, UseGuards, Req, Query, ParseIntPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { Request } from 'express';
 import { SpringService } from './spring.service';
@@ -198,11 +198,10 @@ export class SpringController {
   }
 
   @Get('chat/room/list')
-  @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get chat room list (채팅방 전체 조회)' })
-  async getChatRoomList(@Headers() headers: any) {
-    return this.springProxyService.getChatRoomList(headers);
+  async getChatRoomList() {
+    return this.springProxyService.getChatRoomList();
   }
 
   @Get('chat/room/card')
@@ -225,9 +224,9 @@ export class SpringController {
   @ApiParam({ name: 'roomId', type: Number })
   async enterChatRoom(
     @Param('roomId', ParseIntPipe) roomId: number,
-    @Headers() headers: any
+    @WalletAddress() walletAddress: string
   ) {
-    return this.springProxyService.enterChatRoom(roomId, headers);
+    return this.springProxyService.enterChatRoom(roomId, walletAddress);
   }
 
   @Get('chat/room/:roomId/adoption')
@@ -249,8 +248,8 @@ export class SpringController {
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create donation post (후원 게시 글 작성하기)' })
-  async createDonationPost(@Body() dto: CreateDonationPostDto, @Headers() headers: any) {
-    return this.springProxyService.createDonationPost(dto, headers);
+  async createDonationPost(@Body() dto: CreateDonationPostDto, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.createDonationPost(dto, walletAddress);
   }
 
   @Get('donation/list')
@@ -286,8 +285,8 @@ export class SpringController {
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Make donation (후원하기)' })
-  async makeDonation(@Body() dto: MakeDonationDto, @Headers() headers: any) {
-    return this.springProxyService.makeDonation(dto, headers);
+  async makeDonation(@Body() dto: MakeDonationDto, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.makeDonation(dto, walletAddress);
   }
 
   @Get('donations/mine')
@@ -297,19 +296,19 @@ export class SpringController {
   @ApiQuery({ name: 'cursor', required: false, type: Number })
   @ApiQuery({ name: 'size', required: false, type: Number })
   async getMyDonationHistory(
+    @WalletAddress() walletAddress: string,
     @Query('cursor') cursor?: number,
     @Query('size') size?: number,
-    @Headers() headers?: any,
   ) {
-    return this.springProxyService.getMyDonationHistory({ cursor, size }, headers);
+    return this.springProxyService.getMyDonationHistory({ cursor, size }, walletAddress);
   }
 
   @Get('donations/bone/')
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get my bone balance (나의 후원 가능한 뼈다귀 조회)' })
-  async getMyBoneBalance(@Headers() headers: any) {
-    return this.springProxyService.getMyBoneBalance(headers);
+  async getMyBoneBalance(@WalletAddress() walletAddress: string) {
+    return this.springProxyService.getMyBoneBalance(walletAddress);
   }
 
   // ========== Payment API ==========

@@ -1,8 +1,18 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
 import { ClientGrpc } from "@nestjs/microservices";
 import { firstValueFrom } from "rxjs";
-import { NoseVectorResponse, NoseImageRequest, HealthCheckResponse, HealthCheckRequest, CompareVectorsResponse, CompareWithStoredImageRequest } from './dto/nose-embedder.dto'
+import {
+  NoseVectorResponse,
+  NoseVectorProtoResponse,
+  NoseImageRequest,
+  HealthCheckResponse,
+  HealthCheckRequest,
+  CompareVectorsResponse,
+  CompareVectorsProtoResponse,
+  CompareWithStoredImageRequest
+} from './dto/nose-embedder.dto'
 import { Inject } from "@nestjs/common";
+import { protoEnumToMLErrorCode } from 'src/common/const/ml-error-codes';
 
 @Injectable()
 export class NoseEmbedderProxyService implements OnModuleInit {
@@ -29,14 +39,30 @@ export class NoseEmbedderProxyService implements OnModuleInit {
       image_data: Array.from(imageBuffer),
       image_format: imageFormat || 'jpeg',
     };
-    
+
     console.log(request)
 
-    // Convert Observable to Promise
-    return firstValueFrom(
+    // Convert Observable to Promise - Proto response (snake_case)
+    const protoResponse = await firstValueFrom<NoseVectorProtoResponse>(
         this.noseEmbedderService.extractNoseVector(request),
-        );
+    );
+
+    // Convert snake_case proto response to camelCase application response
+    const response: NoseVectorResponse = {
+      vector: protoResponse.vector,
+      vectorSize: protoResponse.vector_size,
+      success: protoResponse.success,
+      errorMessage: protoResponse.error_message,
+      retryable: protoResponse.retryable,
+    };
+
+    // Proto enum을 MLErrorCode로 변환
+    if (!response.success && protoResponse.error_code !== undefined) {
+      response.errorCode = protoEnumToMLErrorCode(protoResponse.error_code);
     }
+
+    return response;
+  }
 
 
     /**
@@ -61,14 +87,33 @@ export class NoseEmbedderProxyService implements OnModuleInit {
   async compareWithStoredImage(
     imageKey: string,
     petDID: string,
-    ): Promise<CompareVectorsResponse> {
+  ): Promise<CompareVectorsResponse> {
     const request: CompareWithStoredImageRequest = {
-        image_key: imageKey,
-        pet_did: petDID,
-    };    
-    // Convert Observable to Promise
-    return firstValueFrom(
-        this.noseEmbedderService.compareWithStoredImage(request),
+      image_key: imageKey,
+      pet_did: petDID,
+    };
+
+    // Convert Observable to Promise - Proto response (snake_case)
+    const protoResponse = await firstValueFrom<CompareVectorsProtoResponse>(
+      this.noseEmbedderService.compareWithStoredImage(request),
     );
+
+    // Convert snake_case proto response to camelCase application response
+    const response: CompareVectorsResponse = {
+      similarity: protoResponse.similarity,
+      cosine_similarity: protoResponse.cosine_similarity,
+      euclidean_distance: protoResponse.euclidean_distance,
+      vector_size: protoResponse.vector_size,
+      success: protoResponse.success,
+      errorMessage: protoResponse.error_message,
+      retryable: protoResponse.retryable,
+    };
+
+    // Proto enum을 MLErrorCode로 변환
+    if (!response.success && protoResponse.error_code !== undefined) {
+      response.errorCode = protoEnumToMLErrorCode(protoResponse.error_code);
+    }
+
+    return response;
   }
 }

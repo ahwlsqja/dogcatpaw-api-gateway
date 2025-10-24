@@ -1,16 +1,31 @@
 // TypeScript interfaces for gRPC service
 // Copy this to your NestJS project
 
+import { MLErrorCode } from 'src/common/const/ml-error-codes';
+
 export interface NoseImageRequest {
   image_data: Uint8Array | number[];
   image_format?: string;
 }
 
+// Proto response (snake_case from gRPC)
+export interface NoseVectorProtoResponse {
+  vector: number[];
+  vector_size: number;
+  success: boolean;
+  error_message?: string;
+  error_code?: number; // Proto enum value
+  retryable?: boolean;
+}
+
+// Application response (camelCase for API)
 export interface NoseVectorResponse {
   vector: number[];
   vectorSize: number;
   success: boolean;
   errorMessage?: string;
+  errorCode?: MLErrorCode;
+  retryable?: boolean;
 }
 
 export interface HealthCheckRequest {
@@ -36,6 +51,19 @@ export interface CompareWithStoredImageRequest {
   pet_did: string;    // 예: "did:pet:12345"
 }
 
+// Proto response (snake_case from gRPC)
+export interface CompareVectorsProtoResponse {
+  similarity: number;
+  cosine_similarity: number;
+  euclidean_distance: number;
+  vector_size: number;
+  success: boolean;
+  error_message?: string;
+  error_code?: number; // Proto enum value
+  retryable?: boolean;
+}
+
+// Application response (camelCase for API)
 export interface CompareVectorsResponse {
   similarity: number;          // 정규화된 유사도 (0.0 ~ 1.0)
   cosine_similarity: number;   // 코사인 유사도
@@ -43,4 +71,6 @@ export interface CompareVectorsResponse {
   vector_size: number;         // 벡터 차원
   success: boolean;
   errorMessage?: string;
+  errorCode?: MLErrorCode;
+  retryable?: boolean;
 }
