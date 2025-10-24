@@ -319,28 +319,16 @@ export class GuardianService {
 
   /**
    * 펫 연결
-   * IMPORTANT: linkPet() requires msg.sender to be the guardian (not admin)
-   * So in production, we MUST have user's signature
+   * GuardianRegistry is supplementary - admin can call linkPet for transfer sync
    */
   async linkPet(guardianAddress: string, petDID: string, signedTx?: string) {
-    const isDevelopment = process.env.NODE_ENV !== 'production';
-
-    // 프로덕션 + signedTx 있음: 서명된 트랜잭션 전송
-    if (!isDevelopment && signedTx) {
+    // signedTx 있음: 서명된 트랜잭션 전송 (사용자가 직접 서명한 경우)
+    if (signedTx) {
       return this.sendSignedTransaction(signedTx);
     }
 
-    // 프로덕션 + signedTx 없음: ERROR - cannot use admin signer because contract requires msg.sender = guardian
-    if (!isDevelopment && !signedTx) {
-      console.error(`❌ Production mode: Guardian Link requires user signature (admin cannot call linkPet on behalf of guardian)`);
-      throw new Error(
-        'Guardian Link requires user signature. ' +
-        'Frontend must: 1) extract feature vector, 2) calculate petDID, 3) sign linkPet transaction'
-      );
-    }
-
-    // 개발 모드 + adminSigner 있음: adminSigner 사용 (for testing only)
-    if (isDevelopment && this.adminSigner) {
+    // signedTx 없음: adminSigner 사용 (GuardianRegistry는 보조 매핑이므로 admin이 대신 처리)
+    if (this.adminSigner) {
       const contractWithSigner = this.guardianContract.connect(this.adminSigner);
       const tx = await contractWithSigner['linkPet'](petDID);
       const receipt = await tx.wait();
@@ -351,7 +339,7 @@ export class GuardianService {
       };
     }
 
-    throw new Error('Unable to process transaction');
+    throw new Error('Unable to process transaction - no admin signer');
   }
 
   /**
@@ -375,19 +363,16 @@ export class GuardianService {
 
   /**
    * 펫 연결 해제
+   * GuardianRegistry is supplementary - admin can call unlinkPet for transfer sync
    */
   async unlinkPet(guardianAddress: string, petDID: string, signedTx?: string) {
-    const isDevelopment = process.env.NODE_ENV !== 'production';
-
-    // 프로덕션 + signedTx 있음: 서명된 트랜잭션 전송
-    if (!isDevelopment && signedTx) {
+    // signedTx 있음: 서명된 트랜잭션 전송 (사용자가 직접 서명한 경우)
+    if (signedTx) {
       return this.sendSignedTransaction(signedTx);
     }
 
-    // 프로덕션 + signedTx 없음 + adminSigner 있음: adminSigner로 대체 (백그라운드 작업용)
-    // GuardianRegistry는 보조 매핑이므로, 서버가 대신 처리해도 보안상 문제 없음
-    if (!isDevelopment && !signedTx && this.adminSigner) {
-      console.log(`⚠️ Production mode: Using admin signer for GuardianRegistry.unlinkPet (background sync)`);
+    // signedTx 없음: adminSigner 사용 (GuardianRegistry는 보조 매핑이므로 admin이 대신 처리)
+    if (this.adminSigner) {
       const contractWithSigner = this.guardianContract.connect(this.adminSigner);
       const tx = await contractWithSigner['unlinkPet'](petDID);
       const receipt = await tx.wait();
@@ -398,28 +383,7 @@ export class GuardianService {
       };
     }
 
-    // 프로덕션 + signedTx 없음 + adminSigner 없음: 트랜잭션 데이터 반환 (수동 서명 필요)
-    if (!isDevelopment && !signedTx && !this.adminSigner) {
-      return {
-        requiresSignature: true,
-        transactionData: await this.prepareUnlinkPetTx(guardianAddress, petDID),
-        message: 'Please sign this transaction with your wallet'
-      };
-    }
-
-    // 개발 모드 + adminSigner 있음: adminSigner 사용
-    if (isDevelopment && this.adminSigner) {
-      const contractWithSigner = this.guardianContract.connect(this.adminSigner);
-      const tx = await contractWithSigner['unlinkPet'](petDID);
-      const receipt = await tx.wait();
-      return {
-        success: true,
-        txHash: tx.hash,
-        blockNumber: receipt.blockNumber
-      };
-    }
-
-    throw new Error('Unable to process transaction');
+    throw new Error('Unable to process transaction - no admin signer');
   }
 
   /**

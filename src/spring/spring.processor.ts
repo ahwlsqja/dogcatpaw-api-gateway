@@ -25,7 +25,8 @@ export interface UserRegisterJob {
 }
 
 export interface PetTransferJob {
-  adoptionId: number
+  adoptionId: number,
+  newGuardian: string;
 }
 
 export interface VPDeliveryJob {
@@ -285,7 +286,7 @@ export class SpringProcessor {
    */
   @Process('sync-pet-transfer')
   async handleTransferSync(job: Job<PetTransferJob>) {
-    const { adoptionId } = job.data;
+    const { adoptionId, newGuardian } = job.data;
 
     try {
       const startTime = Date.now();
@@ -293,10 +294,12 @@ export class SpringProcessor {
       const response = await firstValueFrom(
         this.httpService.post(
           `${this.springBaseUrl}/api/adoption/${adoptionId}/complete`,
+          {},
           {
             headers: {
               'Content-Type': 'application/json',
               'X-API-Gateway': 'dogcatpaw',
+              'X-Wallet-Address': newGuardian,
             }
           }
         )

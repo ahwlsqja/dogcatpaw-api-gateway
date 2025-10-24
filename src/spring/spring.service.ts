@@ -179,9 +179,11 @@ export class SpringService {
    */
   async queueTransferPet(
     adoptionId: number,
+    newGuardian: string
   ) {
     const job = await this.springQueue.add('sync-pet-transfer', {
-      adoptionId
+      adoptionId,
+      newGuardian
     }, {
       priority: 1,
     });

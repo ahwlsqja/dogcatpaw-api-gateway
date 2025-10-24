@@ -101,7 +101,7 @@ export class VcService {
       console.error(`  Message Hash: ${messageHash}`);
       console.error(`  Signing Data: ${signingData.substring(0, 100)}...`);
       console.error(`  Signature: ${signature.substring(0, 20)}...`);
-      return { success: false, error: 'Invalid signature' };
+      return { success: false, errorMessage: 'Invalid signature' };
     }
 
     console.log(`✅ VC Signature Verified: ${guardianAddress}`);
@@ -238,7 +238,7 @@ export class VcService {
       console.error('❌ Transfer VC Signature Verification Failed:');
       console.error(`  Expected: ${newGuardian}`);
       console.error(`  Recovered: ${recoveredAddress}`);
-      return { success: false, error: 'Invalid signature' };
+      return { success: false, errorMessage: 'Invalid signature' };
     }
 
     console.log(`✅ Transfer VC Signature Verified: ${newGuardian}`);

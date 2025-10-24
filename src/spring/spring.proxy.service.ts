@@ -130,7 +130,7 @@ export class SpringProxyService {
   }
 
   async getAdoptionDetail(adoptId: number) {
-    return this.proxyToSpring('get', '/api/adoption/detail', undefined, { adoptId });
+    return this.proxyToSpring('get', `/api/adoption/detail/${adoptId}`);
   }
 
   /**
@@ -229,12 +229,8 @@ export class SpringProxyService {
     return this.proxyToSpring('get', '/api/donation/list', undefined, queryParams);
   }
 
-  async getClosingSoonDonations() {
-    return this.proxyToSpring('get', '/api/donation/closing');
-  }
-
-  async getDonation(queryParams: any) {
-    return this.proxyToSpring('get', '/api/donation/', undefined, queryParams);
+  async getDonation(donationId: number, queryParams?: any) {
+    return this.proxyToSpring('get', `/api/donation/${donationId}`, undefined, queryParams);
   }
 
   async makeDonation(data: MakeDonationDto, headers?: any) {

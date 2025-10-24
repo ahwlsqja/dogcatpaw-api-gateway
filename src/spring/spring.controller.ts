@@ -58,10 +58,10 @@ export class SpringController {
   }
 
   // 입양 공고 상세 페이지 조회
-  @Get('adoption/detail')
+  @Get('adoption/detail/:adoptId')
   @ApiOperation({ summary: 'Get adoption post detail (입양 게시 글 상세보기 조회)' })
-  @ApiQuery({ name: 'adoptId', required: true, type: Number })
-  async getAdoptionDetail(@Query('adoptId', ParseIntPipe) adoptId: number) {
+  @ApiParam({ name: 'adoptId', required: true, type: Number })
+  async getAdoptionDetail(@Param('adoptId', ParseIntPipe) adoptId: number) {
     return this.springProxyService.getAdoptionDetail(adoptId);
   }
 
@@ -113,20 +113,6 @@ export class SpringController {
     return this.springProxyService.getDailyStories({ cursorId, size });
   }
 
-  // 일상 일지 검색 (구체적인 경로를 먼저 정의)
-  @Get('story/daily/search')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Search daily stories (일상 글쓰기 검색하기)' })
-  @ApiQuery({ name: 'keyword', required: true, type: String })
-  @ApiQuery({ name: 'cursorId', required: false, type: Number })
-  @ApiQuery({ name: 'size', required: false, type: Number })
-  async searchDailyStories(
-    @Query('keyword') keyword: string,
-    @Query('cursorId') cursorId?: number,
-    @Query('size') size?: number,
-  ) {
-    return this.springProxyService.searchDailyStories({ keyword, cursorId, size });
-  }
 
   // 일상 일지 단일 조회 (파라미터 라우트는 마지막에)
   @Get('story/daily/:stories')
@@ -159,23 +145,6 @@ export class SpringController {
     return this.springProxyService.getReviewStories({ cursorId, size });
   }
 
-  // 입양 후기 검색 (구체적인 경로를 먼저 정의)
-  @Get('story/review/search')
-  @UseGuards(SpringAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Search adoption reviews (입양 후기 검색하기)' })
-  @ApiQuery({ name: 'keyword', required: true, type: String })
-  @ApiQuery({ name: 'cursorId', required: false, type: Number })
-  @ApiQuery({ name: 'size', required: false, type: Number })
-  async searchReviewStories(
-    @WalletAddress() walletAddress: string,
-    @Query('keyword') keyword: string,
-    @Query('cursorId') cursorId?: number,
-    @Query('size') size?: number,
-  ) {
-    return this.springProxyService.searchReviewStories({ keyword, cursorId, size }, walletAddress);
-  }
-
   // 입양 후기 단일 조회 (파라미터 라우트는 마지막에)
   @Get('story/review/:reviews')
   @ApiOperation({ summary: 'Get single adoption review (입양 후기 글 조회)' })
@@ -185,7 +154,6 @@ export class SpringController {
   }
 
   // ========== Like and Comment API ==========
-
   @Post('like')
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
@@ -300,23 +268,18 @@ export class SpringController {
     return this.springProxyService.getDonationList({ cursor, size, breed, status });
   }
 
-  @Get('donation/closing')
-  @ApiOperation({ summary: 'Get closing soon donations (홈화면 - 마감 임박 후원 3개)' })
-  async getClosingSoonDonations() {
-    return this.springProxyService.getClosingSoonDonations();
-  }
 
-  @Get('donation')
+  @Get('donation/:donationId')
   @ApiOperation({ summary: 'Get donation detail + donation history (후원 게시 글 및 정보 + 후원 내역 조회)' })
-  @ApiQuery({ name: 'donationId', required: true, type: Number })
+  @ApiParam({ name: 'donationId', required: true, type: Number })
   @ApiQuery({ name: 'cursor', required: false, type: Number })
   @ApiQuery({ name: 'size', required: false, type: Number })
   async getDonation(
-    @Query('donationId', ParseIntPipe) donationId: number,
+    @Param('donationId', ParseIntPipe) donationId: number,
     @Query('cursor') cursor?: number,
     @Query('size') size?: number,
   ) {
-    return this.springProxyService.getDonation({ donationId, cursor, size });
+    return this.springProxyService.getDonation(donationId, { cursor, size });
   }
 
   @Post('donations')
@@ -355,16 +318,16 @@ export class SpringController {
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Prepare payment (뼈다귀 충전 준비)' })
-  async preparePayment(@Body() dto: PreparePaymentDto, @Headers() headers: any) {
-    return this.springProxyService.preparePayment(dto, headers);
+  async preparePayment(@Body() dto: PreparePaymentDto, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.preparePayment(dto, walletAddress);
   }
 
   @Post('payment/approve')
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Approve payment (뼈다귀 서비스 승인)' })
-  async approvePayment(@Body() dto: ApprovePaymentDto, @Headers() headers: any) {
-    return this.springProxyService.approvePayment(dto, headers);
+  async approvePayment(@Body() dto: ApprovePaymentDto, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.approvePayment(dto, walletAddress);
   }
 
   // ========== Admin API ==========

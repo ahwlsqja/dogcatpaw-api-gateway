@@ -21,6 +21,8 @@ import {
   HealthCheckResponseDto,
   GetGuardianInfoRequestDto,
   GetGuardianInfoResponseDto,
+  InvalidateVCRequestDto,
+  InvalidateVCResponseDto,
 } from './dto/grpc-vc-req.dto';
 
 /**
@@ -74,9 +76,7 @@ export class VcProxyService implements OnModuleInit {
     return firstValueFrom(this.vcService.GetGuardianInfo(data))
   }
 
-  async invalidateVC(data: { petDID: string; guardianAddress: string; reason: string }) {
-    // For now, just log the request
-    console.log(`Invalidating VC for ${data.petDID} owned by ${data.guardianAddress}: ${data.reason}`);
-    return { success: true };
+  async invalidateVC(data: InvalidateVCRequestDto): Promise<InvalidateVCResponseDto> {
+    return firstValueFrom(this.vcService.InvalidateVC(data));
   }
 }

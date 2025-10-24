@@ -11,31 +11,46 @@ export class CheckAuthRequestDto {
 
 export class RegisterAuthResponseDto {
   success: boolean;
-  authId?: number;
+  data?: {
+    authId?: number;
+  };
+  errorCode?: string;
+  errorMessage?: string;
+  retryable?: boolean;
+  timestamp?: string;
   message?: string;
-  error?: string;
 }
 
 export class GetGuardianInfoResponseDto{
   success: boolean;
-  guardianId: number;
-  email: string;
-  phone: string;
-  name: string;
-  isEmailVerified: boolean;
-  isOnChainRegistered: boolean;
-  error?: string;
+  data?: {
+    guardianId?: number;
+    email?: string;
+    phone?: string;
+    name?: string;
+    isEmailVerified?: boolean;
+    isOnChainRegistered?: boolean;
+  };
+  errorCode?: string;
+  errorMessage?: string;
+  retryable?: boolean;
+  timestamp?: string;
 }
-  
+
 export class GetGuardianInfoRequestDto{
   walletAddress: string;
 }
 
 export class CheckAuthResponseDto {
   success: boolean;
-  authId?: number;
+  data?: {
+    authId?: number;
+  };
+  errorCode?: string;
+  errorMessage?: string;
+  retryable?: boolean;
+  timestamp?: string;
   message?: string;
-  error?: string;
 }
 
 // Guardian 관련 DTO
@@ -50,9 +65,14 @@ export class UpdateGuardianInfoRequestDto {
 
 export class UpdateGuardianInfoResponseDto {
   success: boolean;
-  guardianId?: number;
+  data?: {
+    guardianId?: number;
+  };
+  errorCode?: string;
+  errorMessage?: string;
+  retryable?: boolean;
+  timestamp?: string;
   message?: string;
-  error?: string;
 }
 
 // Shelter 관련 DTO
@@ -66,9 +86,14 @@ export class UpdateShelterInfoRequestDto {
 
 export class UpdateShelterInfoResponseDto {
   success: boolean;
-  shelterId?: number;
+  data?: {
+    shelterId?: number;
+  };
+  errorCode?: string;
+  errorMessage?: string;
+  retryable?: boolean;
+  timestamp?: string;
   message?: string;
-  error?: string;
 }
 
 // VC 관련 DTO
@@ -81,9 +106,14 @@ export class StoreVCRequestDto {
 
 export class StoreVCResponseDto {
   success: boolean;
-  vcId?: number;
+  data?: {
+    vcId?: number;
+  };
+  errorCode?: string;
+  errorMessage?: string;
+  retryable?: boolean;
+  timestamp?: string;
   message?: string;
-  error?: string;
 }
 
 export class GetVCRequestDto {
@@ -93,10 +123,15 @@ export class GetVCRequestDto {
 
 export class GetVCResponseDto {
   success: boolean;
-  vcJwt?: string;
-  metadata?: string;
-  createdAt?: string;
-  error?: string;
+  data?: {
+    vcJwt?: string;
+    metadata?: string;
+    createdAt?: string;
+  };
+  errorCode?: string;
+  errorMessage?: string;
+  retryable?: boolean;
+  timestamp?: string;
 }
 
 export class GetVCsByWalletRequestDto {
@@ -111,8 +146,30 @@ export class VCDto {
 }
 
 export class GetVCsByWalletResponseDto {
-  vcs?: VCDto[];
-  error?: string;
+  success: boolean;
+  data?: {
+    vcs?: VCDto[];
+  };
+  errorCode?: string;
+  errorMessage?: string;
+  retryable?: boolean;
+  timestamp?: string;
+}
+
+// InvalidateVC DTO
+export class InvalidateVCRequestDto {
+  petDID: string;
+  guardianAddress: string;
+  reason: string;
+}
+
+export class InvalidateVCResponseDto {
+  success: boolean;
+  errorCode?: string;
+  errorMessage?: string;
+  retryable?: boolean;
+  timestamp?: string;
+  message?: string;
 }
 
 // Health Check DTO

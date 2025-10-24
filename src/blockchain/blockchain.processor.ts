@@ -190,9 +190,14 @@ export class BlockchainProcessor {
         this.logger.warn(`Failed to unlink from previous guardian: ${error.message}`);
       }
 
-      // Link to new guardian
-      await this.guardianService.linkPet(newGuardian, petDID, linkSignedTx);
-      this.logger.debug(`Pet ${petDID} linked to new guardian ${newGuardian}`);
+      // Link to new guardian (optional - GuardianRegistry is supplementary)
+      try {
+        await this.guardianService.linkPet(newGuardian, petDID, linkSignedTx);
+        this.logger.debug(`Pet ${petDID} linked to new guardian ${newGuardian}`);
+      } catch (error) {
+        this.logger.warn(`Failed to link to new guardian: ${error.message}`);
+        this.logger.warn(`GuardianRegistry sync skipped (supplementary mapping)`);
+      }
 
       const duration = Date.now() - startTime;
       this.logger.debug(`Transfer sync took ${duration}ms for ${petDID}`);

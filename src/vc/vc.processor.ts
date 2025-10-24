@@ -5,6 +5,7 @@ import { Job } from 'bull';
 import { VCTransferJob } from 'src/common/interceptor/Blockchain.interface';
 import { VcService } from './vc.service';
 import { VcProxyService } from './vc.proxy.service';
+import { VCErrorCode, isRetryableError, VCErrorResponse } from 'src/common/const/vc-error-codes';
 
 @Processor('vc-queue')
 @Injectable()
@@ -16,6 +17,41 @@ export class VcProcessor {
     private readonly vcProxyService: VcProxyService,
   ) {
     this.logger.log('VC Processor initialized');
+  }
+
+  /**
+   * 에러 응답 검사 및 재시도 가능 여부 판단
+   */
+  private handleVCError(result: any, operationName: string): void {
+    if (!result || result.success !== false) {
+      return; // 성공 응답이거나 에러가 아님
+    }
+
+    const errorResponse = result as VCErrorResponse;
+
+    this.logger.warn(
+      `${operationName} failed - ErrorCode: ${errorResponse.errorCode}, Message: ${errorResponse.errorMessage}`
+    );
+
+    // 재시도 불가능한 에러 (4xxx)는 즉시 실패 처리
+    if (!errorResponse.retryable) {
+      this.logger.error(
+        `${operationName} - Non-retryable error: ${errorResponse.errorCode}. Stopping retries.`
+      );
+      // Job을 영구 실패로 만들기 위해 특수 에러 던지기
+      const error = new Error(errorResponse.errorMessage);
+      error.name = 'NonRetryableError';
+      (error as any).errorCode = errorResponse.errorCode;
+      throw error;
+    }
+
+    // 재시도 가능한 에러 (5xxx)는 재시도를 위해 에러 던지기
+    this.logger.warn(
+      `${operationName} - Retryable error: ${errorResponse.errorCode}. Will retry.`
+    );
+    const error = new Error(errorResponse.errorMessage);
+    (error as any).errorCode = errorResponse.errorCode;
+    throw error;
   }
 
   @OnQueueActive()
@@ -82,19 +118,35 @@ export class VcProcessor {
         isOnChainRegistered,
       });
 
+      // 에러 응답 체크
+      this.handleVCError(result, 'Guardian Sync');
+
       const duration = Date.now() - startTime;
       this.logger.debug(`Guardian sync took ${duration}ms for ${walletAddress}`);
 
       return {
         success: true,
-        guardianId: result.guardianId,
+        guardianId: result.data?.guardianId,
         walletAddress,
         duration,
-        message: 'Guardian info synced successfully'
+        message: result.message || 'Guardian info synced successfully'
       };
     } catch (error) {
+      // gRPC 연결 에러 등 네트워크 오류는 재시도
+      if (error.code === 14 || error.code === 'UNAVAILABLE') {
+        this.logger.warn(`gRPC connection error for ${walletAddress} - Will retry`);
+        throw error;
+      }
+
+      // NonRetryableError는 재시도하지 않음
+      if (error.name === 'NonRetryableError') {
+        this.logger.error(`Guardian sync permanently failed for ${walletAddress}: ${error.message}`);
+        throw error;
+      }
+
+      // 기타 에러는 재시도
       this.logger.error(`Guardian sync error for ${walletAddress}:`, error.message);
-      throw error; // Bull will retry based on configuration
+      throw error;
     }
   }
 
@@ -118,8 +170,14 @@ export class VcProcessor {
         petData,
       });
 
+      // 에러 응답 체크
       if (!result.success) {
-        throw new Error(result.error || 'Failed to create pet VC');
+        // VC Service의 에러 응답 형태 확인
+        if (result.errorCode) {
+          this.handleVCError(result, 'Pet VC Creation');
+        }
+        // 기존 에러 형태 지원 (호환성)
+        throw new Error(result.errorMessage || 'Failed to create pet VC');
       }
 
       const duration = Date.now() - startTime;
@@ -129,13 +187,25 @@ export class VcProcessor {
         success: true,
         petDID,
         guardianAddress,
-        vcId: result.vcId,
+        vcId: result.data?.vcId,
         duration,
         message: 'Pet VC created successfully with guardian signature'
       };
     } catch (error) {
+      // gRPC 연결 에러는 재시도
+      if (error.code === 14 || error.code === 'UNAVAILABLE') {
+        this.logger.warn(`gRPC connection error for ${petDID} - Will retry`);
+        throw error;
+      }
+
+      // NonRetryableError는 재시도하지 않음
+      if (error.name === 'NonRetryableError') {
+        this.logger.error(`Pet VC creation permanently failed for ${petDID}: ${error.message}`);
+        throw error;
+      }
+
       this.logger.error(`Pet VC creation error for ${petDID}:`, error.message);
-      throw error; // Bull will retry based on configuration
+      throw error;
     }
   }
 
@@ -151,50 +221,75 @@ export class VcProcessor {
 
       // 1. Invalidate previous guardian's VC
       try {
-        await this.vcProxyService.invalidateVC({
+        const invalidateResult = await this.vcProxyService.invalidateVC({
           petDID,
           guardianAddress: previousGuardian,
           reason: 'ownership_transfer',
         });
-        this.logger.debug(`Invalidated VC for previous guardian: ${previousGuardian}`);
+
+        // VC가 없는 경우는 무시 (이미 삭제되었거나 없을 수 있음)
+        if (invalidateResult && !invalidateResult.success) {
+          if (invalidateResult.errorCode === VCErrorCode.VC_NOT_FOUND) {
+            this.logger.debug(`Previous VC not found for ${previousGuardian} - skipping invalidation`);
+          } else {
+            this.logger.warn(
+              `Failed to invalidate previous VC: ${invalidateResult.errorCode} - ${invalidateResult.errorMessage}`
+            );
+          }
+        } else {
+          this.logger.debug(`Invalidated VC for previous guardian: ${previousGuardian}`);
+        }
       } catch (error) {
         this.logger.warn(`Failed to invalidate previous VC for ${previousGuardian}:`, error.message);
         // Continue - new VC creation is independent
       }
 
       // 2. Create new VC for new guardian
-      try {
-        const result = await this.vcService.createTransferVC({
-          newGuardian,
-          signature,
-          message,
-          petDID,
-          petData,
-        });
+      const result = await this.vcService.createTransferVC({
+        newGuardian,
+        signature,
+        message,
+        petDID,
+        petData,
+      });
 
-        if (!result.success) {
-          throw new Error(result.error || 'Failed to create transfer VC');
+      // 에러 응답 체크
+      if (!result.success) {
+        // VC Service의 에러 응답 형태 확인
+        if (result.errorCode) {
+          this.handleVCError(result, 'VC Transfer');
         }
+        // 기존 에러 형태 지원 (호환성)
+        throw new Error(result.errorMessage || 'Failed to create transfer VC');
+      }
 
-        const duration = Date.now() - startTime;
-        this.logger.debug(`VC transfer processing took ${duration}ms for ${petDID}`);
+      const duration = Date.now() - startTime;
+      this.logger.debug(`VC transfer processing took ${duration}ms for ${petDID}`);
 
-        return {
-          success: true,
-          petDID,
-          newGuardian,
-          previousGuardian,
-          vcId: result.vcId,
-          duration,
-          message: 'VC transfer completed successfully'
-        };
-      } catch (error) {
-        this.logger.error(`Failed to create transfer VC for ${newGuardian}:`, error.message);
+      return {
+        success: true,
+        petDID,
+        newGuardian,
+        previousGuardian,
+        vcId: result.data?.vcId,
+        duration,
+        message: 'VC transfer completed successfully'
+      };
+    } catch (error) {
+      // gRPC 연결 에러는 재시도
+      if (error.code === 14 || error.code === 'UNAVAILABLE') {
+        this.logger.warn(`gRPC connection error for ${petDID} - Will retry`);
         throw error;
       }
-    } catch (error) {
+
+      // NonRetryableError는 재시도하지 않음
+      if (error.name === 'NonRetryableError') {
+        this.logger.error(`VC transfer permanently failed for ${petDID}: ${error.message}`);
+        throw error;
+      }
+
       this.logger.error(`VC transfer processing error for ${petDID}:`, error.message);
-      throw error; // Bull will retry based on configuration
+      throw error;
     }
   }
 }

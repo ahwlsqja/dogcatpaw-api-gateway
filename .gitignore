@@ -29,6 +29,13 @@ lerna-debug.log*
 .settings/
 *.sublime-workspace
 
+.claude
+
+/docs
+/frontendguide
+/scripts
+/spring-chatting
+
 # IDE - VSCode
 .vscode/*
 !.vscode/settings.json

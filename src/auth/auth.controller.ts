@@ -10,6 +10,7 @@ import { TokenService } from './services/token.service';
 import { ConfigService } from '@nestjs/config';
 import { envVariableKeys } from 'src/common/const/env.const';
 import { SpringProxyService } from 'src/spring/spring.proxy.service';
+import { VCErrorCode } from 'src/common/const/vc-error-codes';
 
 @ApiTags('Authentication')
 @Controller('api/auth')
@@ -34,8 +35,8 @@ export class AuthController {
     // VCs 가져오기 (VP 생성용)
     const vcsResponse = await this.vcProxyService.getVCsByWallet({
       walletAddress: dto.walletAddress
-    }).catch(() => ({ vcs: [] }));
-    const vcs = vcsResponse.vcs || [];
+    }).catch(() => ({ success: false, data: { vcs: [] } }));
+    const vcs = vcsResponse.data?.vcs || [];
 
     // VC가 없으면 VP 서명 데이터 없이 반환
     if (vcs.length === 0) {
@@ -94,7 +95,7 @@ export class AuthController {
       }
 
       // 2. 가디언 정보 가져오기 async로 (VC Service 사용 가능 시)
-      const guardianInfo = await this.vcProxyService.getGuardianInfo({
+      const guardianInfoResponse = await this.vcProxyService.getGuardianInfo({
         walletAddress: dto.walletAddress
       }).catch((error) => {
         // VC Service 에러 시 null 반환 (로그인은 계속 진행)
@@ -102,17 +103,33 @@ export class AuthController {
         return null;
       });
 
-      // VC Service 에러 체크: 실제 서비스 에러인 경우만 예외 발생
-      // '가디언정보등록X'는 정상 케이스 (아직 등록하지 않은 사용자)
-      if(guardianInfo && guardianInfo.error && guardianInfo.error !== '가디언정보등록X') {
-        throw new Error(`Server Error: VC Service 에러 - ${guardianInfo.error}`)
+      // VC Service 에러 체크 및 데이터 추출
+      // GUARDIAN_NOT_FOUND는 정상 케이스 (아직 등록하지 않은 사용자)
+      let guardianInfo = null;
+      if (guardianInfoResponse) {
+        if (!guardianInfoResponse.success) {
+          // 에러 응답인 경우
+          if (guardianInfoResponse.errorCode === VCErrorCode.GUARDIAN_NOT_FOUND) {
+            // GUARDIAN_NOT_FOUND - 정상 케이스
+            console.log('Guardian not registered yet');
+            guardianInfo = null;
+          } else {
+            // 다른 에러 - 예외 발생
+            throw new Error(
+              `Server Error: VC Service 에러 - ${guardianInfoResponse.errorCode}: ${guardianInfoResponse.errorMessage}`
+            );
+          }
+        } else {
+          // 성공 응답인 경우 data 추출
+          guardianInfo = guardianInfoResponse.data || null;
+        }
       }
 
       // 3. 모든 VC에 대한 하나의 VP 생성
       const vcsResponse = await this.vcProxyService.getVCsByWallet({
         walletAddress: dto.walletAddress
-      }).catch(() => ({ vcs: [] }));
-      const vcs = vcsResponse.vcs || [];
+      }).catch(() => ({ success: false, data: { vcs: [] } }));
+      const vcs = vcsResponse.data?.vcs || [];
 
       // 4. API GateWay를 위한 접근 Access Token 발급
       const accessToken = await this.authService.createAccessToken({
@@ -187,9 +204,16 @@ export class AuthController {
     const walletAddress = req.user?.address;
 
     // Get guardian info
-    const guardianInfo = await this.vcProxyService.getGuardianInfo({
+    const guardianInfoResponse = await this.vcProxyService.getGuardianInfo({
       walletAddress
     }).catch(() => null);
+
+    // Extract data from VCResponse format
+    const guardianInfo = guardianInfoResponse?.success && guardianInfoResponse.data
+      ? guardianInfoResponse.data
+      : null;
+
+    console.log(guardianInfo)
 
     // Get all VCs
     /**
@@ -200,11 +224,11 @@ export class AuthController {
      */
     const response = await this.vcProxyService.getVCsByWallet({
       walletAddress
-    }).catch(() => ({ vcs: [] }));
-    const vcs = response.vcs || [];
+    }).catch(() => ({ success: false, data: { vcs: [] } }));
+    const vcs = response.data?.vcs || [];
 
     // Get pets
-    const petVCs = vcs.filter((vc: VCDto) => vc.vcType === 'PetOwnership');
+    const petVCs = vcs.filter((vc: VCDto) => vc.vcType === 'GuardianIssuedPetVC');
 
     return {
       success: true,

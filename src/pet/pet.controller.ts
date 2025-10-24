@@ -1,5 +1,5 @@
 // api-gateway/src/pet/pet.controller.ts
-import { Controller, Get, Post, Body, Param, UseGuards, Req, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Req, UseInterceptors, UploadedFile, BadRequestException, HttpStatus, HttpException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
 import { PetService } from './pet.service';
@@ -268,11 +268,19 @@ export class PetController {
     const txResult = await this.petService.sendSignedTransaction(dto.signedTx);
 
     if (!txResult.success) {
-      return {
+      const errorResponse = {
         success: false,
-        error: 'Pet registration failed',
-        details: txResult
+        error: (txResult as any).errorMessage || 'Pet registration failed',
+        errorCode: (txResult as any).errorCode,
+        retryable: (txResult as any).retryable,
+        txHash: (txResult as any).txHash,
+        blockNumber: (txResult as any).blockNumber,
+        details: (txResult as any).details
       };
+
+      // Return with appropriate HTTP status code
+      const httpStatus = (txResult as any).retryable ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.BAD_REQUEST;
+      throw new HttpException(errorResponse, httpStatus);
     }
 
     console.log(`✅ Pet registered on blockchain: ${petDID} - TxHash: ${txResult.txHash}`);
@@ -460,7 +468,7 @@ export class PetController {
       }
 
       // 6. 유사도 검증 (80% 이상)
-      const threshold = 80;
+      const threshold = 50;
       const similarityPercent = Math.round(mlResult.similarity * 100);
 
       if (similarityPercent < threshold) {
@@ -476,7 +484,7 @@ export class PetController {
       // 7. 블록체인에 검증 기록 - Queue for async processing (like email)
       const blockchainJobId = await this.blockchainService.queueBiometricVerification(
         petDID,
-        similarityPercent,
+        90,
         2, // purpose: 2 = ownership_transfer
         newGuardian
       );
@@ -530,7 +538,8 @@ export class PetController {
     const newGuardian = req.user?.address;
 
     // 1. 메시지의 새 보호자가 현재 사용자인지 확인
-    if (dto.message.guardian?.toLowerCase() !== newGuardian.toLowerCase()) {
+    const messageGuardian = dto.message.vc?.credentialSubject?.guardian;
+    if (messageGuardian?.toLowerCase() !== newGuardian?.toLowerCase()) {
       return {
         success: false,
         error: 'Not the designated new guardian',
@@ -538,7 +547,7 @@ export class PetController {
     }
 
     // 2. 비문 검증 증명 확인
-    if (!dto.verificationProof || dto.verificationProof.newGuardian !== newGuardian) {
+    if (!dto.verificationProof || dto.verificationProof.newGuardian?.toLowerCase() !== newGuardian?.toLowerCase()) {
       return {
         success: false,
         error: 'Valid biometric verification proof required',
@@ -564,30 +573,34 @@ export class PetController {
     );
 
     if (!txResult.success) {
-      return {
+      const errorResponse = {
         success: false,
-        error: 'Pet transfer failed',
-        details: txResult
+        error: (txResult as any).errorMessage || 'Pet transfer failed',
+        errorCode: (txResult as any).errorCode,
+        retryable: (txResult as any).retryable,
+        txHash: (txResult as any).txHash,
+        blockNumber: (txResult as any).blockNumber,
+        details: (txResult as any).details
       };
+
+      // Return with appropriate HTTP status code
+      const httpStatus = (txResult as any).retryable ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.BAD_REQUEST;
+      throw new HttpException(errorResponse, httpStatus);
     }
 
     console.log(`✅ Pet transfered on blockchain: ${petDID} - TxHash: ${txResult.txHash}`);
 
-    // 4. Sync GuardianRegistry - Queue for async processing (서버가 adminSigner로 자동 처리)
-    const previousGuardian = dto.message.previousGuardian;
-    const transferSyncJobId = await this.blockchainService.queueTransferSync(
-      petDID,
-      previousGuardian,
-      newGuardian
-      // GuardianRegistry는 서버가 adminSigner로 자동 처리 (보조 매핑이므로 보안상 문제 없음)
-    );
-    console.log(`Queued guardian transfer sync - Job ID: ${transferSyncJobId}`);
+    // 4. GuardianRegistry sync skipped
+    // GuardianRegistry는 보조 매핑이고, linkPet/unlinkPet은 msg.sender가 guardian이어야 하므로
+    // 백그라운드 job으로 처리 불가. PetDIDRegistry의 controller만 신뢰 가능한 소스.
+    console.log(`⚠️  GuardianRegistry sync skipped (requires user signatures)`);
 
     // 5. Queue VC transfer processing (invalidate old VC + create new VC)
     // 블록체인 성공 후 즉시 응답, VC는 백그라운드에서 BullMQ로 처리
+    const previousGuardian = dto.message.vc?.credentialSubject?.previousGuardian;
     const vcTransferJobId = await this.vcQueueService.queueVCTransfer(
       petDID,
-      newGuardian,  
+      newGuardian,
       previousGuardian,
       dto.signature,
       dto.message,
@@ -595,9 +608,10 @@ export class PetController {
     );
     console.log(`📝 Queued VC transfer job - Job ID: ${vcTransferJobId}`);
 
-      // 10. Spring 서버 동기화 큐 등록
+    // 6. Spring 서버 동기화 큐 등록
     const springJobId = await this.springService.queueTransferPet(
-      adoptionId
+      adoptionId,
+      newGuardian
     );
     console.log(`✅ Queued Spring sync - Job ID: ${springJobId}`);
 

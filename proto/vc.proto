@@ -20,11 +20,18 @@ message RegisterAuthRequest {
   string walletAddress = 1;
 }
 
+message RegisterAuthData {
+  int32 authId = 1;
+}
+
 message RegisterAuthResponse {
   bool success = 1;
-  int32 authId = 2;
-  string message = 3;
-  string error = 4;
+  RegisterAuthData data = 2;
+  string errorCode = 3;
+  string errorMessage = 4;
+  bool retryable = 5;
+  string timestamp = 6;
+  string message = 7;
 }
 
 message StoreVCRequest {
@@ -34,11 +41,18 @@ message StoreVCRequest {
   string metadata = 4;
 }
 
+message StoreVCData {
+  int32 vcId = 1;
+}
+
 message StoreVCResponse {
   bool success = 1;
-  int32 vcId = 2;
-  string message = 3;
-  string error = 4;
+  StoreVCData data = 2;
+  string errorCode = 3;
+  string errorMessage = 4;
+  bool retryable = 5;
+  string timestamp = 6;
+  string message = 7;
 }
 
 message GetVCRequest {
@@ -46,21 +60,23 @@ message GetVCRequest {
   string guardianAddress = 2;
 }
 
+message GetVCData {
+  string vcJwt = 1;
+  string metadata = 2;
+  string createdAt = 3;
+}
+
 message GetVCResponse {
   bool success = 1;
-  string vcJwt = 2;
-  string metadata = 3;
-  string createdAt = 4;
-  string error = 5;
+  GetVCData data = 2;
+  string errorCode = 3;
+  string errorMessage = 4;
+  bool retryable = 5;
+  string timestamp = 6;
 }
 
 message GetVCsByWalletRequest {
   string walletAddress = 1;
-}
-
-message GetVCsByWalletResponse {
-  repeated VC vcs = 1;
-  string error = 2;
 }
 
 message VC {
@@ -68,6 +84,19 @@ message VC {
   string vcJwt = 2;
   string vcType = 3;
   string createdAt = 4;
+}
+
+message GetVCsByWalletData {
+  repeated VC vcs = 1;
+}
+
+message GetVCsByWalletResponse {
+  bool success = 1;
+  GetVCsByWalletData data = 2;
+  string errorCode = 3;
+  string errorMessage = 4;
+  bool retryable = 5;
+  string timestamp = 6;
 }
 
 message UpdateGuardianRequest {
@@ -79,11 +108,18 @@ message UpdateGuardianRequest {
   bool isOnChainRegistered = 6;
 }
 
+message UpdateGuardianData {
+  int32 guardianId = 1;
+}
+
 message UpdateGuardianResponse {
   bool success = 1;
-  int32 guardianId = 2;
-  string message = 3;
-  string error = 4;
+  UpdateGuardianData data = 2;
+  string errorCode = 3;
+  string errorMessage = 4;
+  bool retryable = 5;
+  string timestamp = 6;
+  string message = 7;
 }
 
 message UpdateShelterRequest {
@@ -94,37 +130,58 @@ message UpdateShelterRequest {
   int32 capacity = 5;
 }
 
+message UpdateShelterData {
+  int32 shelterId = 1;
+}
+
 message UpdateShelterResponse {
   bool success = 1;
-  int32 shelterId = 2;
-  string message = 3;
-  string error = 4;
+  UpdateShelterData data = 2;
+  string errorCode = 3;
+  string errorMessage = 4;
+  bool retryable = 5;
+  string timestamp = 6;
+  string message = 7;
 }
 
 message CheckAuthRequest {
   string walletAddress = 1;
 }
 
+message CheckAuthData {
+  int32 authId = 1;
+}
+
 message CheckAuthResponse {
   bool success = 1;
-  int32 authId = 2;
-  string message = 3;
-  string error = 4;
+  CheckAuthData data = 2;
+  string errorCode = 3;
+  string errorMessage = 4;
+  bool retryable = 5;
+  string timestamp = 6;
+  string message = 7;
 }
 
 message GetGuardianInfoRequest {
   string walletAddress = 1;
 }
 
+message GuardianInfoData {
+  int32 guardianId = 1;
+  string email = 2;
+  string phone = 3;
+  string name = 4;
+  bool isEmailVerified = 5;
+  bool isOnChainRegistered = 6;
+}
+
 message GetGuardianInfoResponse {
   bool success = 1;
-  int32 guardianId = 2;
-  string email = 3;
-  string phone = 4;
-  string name = 5;
-  bool isEmailVerified = 6;
-  bool isOnChainRegistered = 7;
-  string error = 8;
+  GuardianInfoData data = 2;
+  string errorCode = 3;
+  string errorMessage = 4;
+  bool retryable = 5;
+  string timestamp = 6;
 }
 
 message InvalidateVCRequest {
@@ -135,8 +192,11 @@ message InvalidateVCRequest {
 
 message InvalidateVCResponse {
   bool success = 1;
-  string message = 2;
-  string error = 3;
+  string errorCode = 2;
+  string errorMessage = 3;
+  bool retryable = 4;
+  string timestamp = 5;
+  string message = 6;
 }
 
 message HealthCheckRequest {

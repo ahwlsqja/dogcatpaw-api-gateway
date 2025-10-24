@@ -66,15 +66,45 @@ export class PetService {
    * 서명된 트랜잭션 전송
    */
   async sendSignedTransaction(signedTx: string) {
-    const tx = await this.provider.broadcastTransaction(signedTx);
-    const receipt = await tx.wait();
+    console.log('🔍 [sendSignedTransaction] Received signedTx length:', signedTx.length);
+    console.log('🔍 [sendSignedTransaction] signedTx preview:', signedTx.substring(0, 100) + '...');
 
-    return {
-      success: true,
-      txHash: tx.hash,
-      blockNumber: receipt.blockNumber,
-      gasUsed: receipt.gasUsed.toString(),
-    };
+    try {
+      const tx = await this.provider.broadcastTransaction(signedTx);
+      console.log('🔍 [sendSignedTransaction] Broadcasted tx hash:', tx.hash);
+      console.log('🔍 [sendSignedTransaction] Tx to:', tx.to);
+      console.log('🔍 [sendSignedTransaction] Tx data length:', tx.data.length);
+      console.log('🔍 [sendSignedTransaction] Tx data preview:', tx.data.substring(0, 100));
+
+      // Wait with timeout (30 seconds)
+      console.log('⏳ [sendSignedTransaction] Waiting for transaction confirmation...');
+      const receipt = await Promise.race([
+        tx.wait(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Transaction confirmation timeout after 30 seconds')), 30000)
+        )
+      ]) as any;
+
+      console.log('✅ [sendSignedTransaction] Transaction confirmed in block:', receipt.blockNumber);
+
+      // Check if transaction was successful
+      if (receipt.status === 0) {
+        console.error(`❌ Transaction reverted - Block: ${receipt.blockNumber}, Hash: ${tx.hash}`);
+        throw new Error('Transaction was mined but reverted on-chain');
+      }
+
+      return {
+        success: true,
+        txHash: tx.hash,
+        blockNumber: receipt.blockNumber,
+        gasUsed: receipt.gasUsed.toString(),
+      };
+    } catch (error) {
+      console.error('❌ [sendSignedTransaction] Error:', error.message);
+      // Import and use blockchain error classifier
+      const { createBlockchainErrorResponse } = await import('../common/const/blockchain-error-codes');
+      return createBlockchainErrorResponse(error);
+    }
   }
 
   /**
