@@ -13,11 +13,20 @@ export class CreatePetDto {
   specifics: string;
 
   @ApiProperty({
-    description: "이미지",
-    example: "dfdadsfsdf"
+    description: 'Pet profile image filenames (comma-separated). Upload images to S3 first using POST /common to get presigned URLs.',
+    example: '8a7b9c1d-2e3f-4g5h-6i7j-8k9l0m1n2o3p.jpg,9b8c0d2e-3f4g-5h6i-7j8k-9l0m1n2o3p4q.jpg',
+    required: true,
   })
   @IsString()
   images: string;
+
+  @ApiProperty({
+    description: 'Nose print image filename (uploaded to S3 temp folder). This will be used for biometric identification. Upload to S3 first using POST /common.',
+    example: '7c8d9e0f-1g2h-3i4j-5k6l-7m8n9o0p1q2r.jpg',
+    required: true,
+  })
+  @IsString()
+  noseImage: string;
 
   @ApiPropertyOptional({
     description: '반려동물 이름',

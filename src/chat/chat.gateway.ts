@@ -12,7 +12,13 @@ import {
 import { Logger, UseGuards } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
-import { SendMessageDto, JoinRoomDto } from './dto/chat-message.dto';
+import {
+  SendMessageDto,
+  JoinRoomDto,
+  LeaveRoomDto,
+  JoinRoomResponseDto,
+  SendMessageResponseDto,
+} from './dto/chat-message.dto';
 import { RedisService } from '../common/redis/redis.service';
 import { JwtService } from '@nestjs/jwt';
 import { TokenService } from '../auth/services/token.service';
@@ -306,7 +312,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   @SubscribeMessage('leaveRoom')
   async handleLeaveRoom(
     @ConnectedSocket() client: Socket,
-    @MessageBody() dto: JoinRoomDto,
+    @MessageBody() dto: LeaveRoomDto,
   ) {
     const user = client.data.user;
 

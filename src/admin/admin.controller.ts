@@ -1,6 +1,6 @@
 // api-gateway/src/admin/admin.controller.ts
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiSecurity } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiSecurity, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { AdminAuthGuard } from './guard/admin-auth.guard';
 
@@ -45,6 +45,7 @@ export class AdminController {
     summary: 'Get guardian profile by address',
     description: 'Get full guardian profile including pets and verification status',
   })
+  @ApiParam({ name: 'address', description: 'Guardian wallet address', example: '0x1234567890abcdef1234567890abcdef12345678' })
   @ApiResponse({ status: 200, description: 'Guardian profile retrieved' })
   async getGuardianProfile(@Param('address') address: string) {
     return this.adminService.getGuardianProfile(address);
@@ -58,6 +59,7 @@ export class AdminController {
     summary: 'Get pet DID document and info',
     description: 'Get complete pet information including DID document, biometric data, and history',
   })
+  @ApiParam({ name: 'petDID', description: 'Pet DID', example: 'did:ethr:besu:0xabc...' })
   @ApiResponse({ status: 200, description: 'Pet info retrieved' })
   async getPetInfo(@Param('petDID') petDID: string) {
     return this.adminService.getPetInfo(petDID);
@@ -71,6 +73,7 @@ export class AdminController {
     summary: 'Get all pets by controller address',
     description: 'Get list of all pet DIDs controlled by a specific address',
   })
+  @ApiParam({ name: 'address', description: 'Controller wallet address', example: '0x1234567890abcdef1234567890abcdef12345678' })
   @ApiResponse({ status: 200, description: 'Pets retrieved' })
   async getPetsByController(@Param('address') address: string) {
     return this.adminService.getPetsByController(address);
@@ -84,6 +87,8 @@ export class AdminController {
     summary: 'Check if address is authorized guardian for pet',
     description: 'Verify if a guardian address is authorized to manage a pet',
   })
+  @ApiQuery({ name: 'petDID', description: 'Pet DID to check', example: 'did:ethr:besu:0xabc...' })
+  @ApiQuery({ name: 'guardianAddress', description: 'Guardian wallet address', example: '0x1234567890abcdef1234567890abcdef12345678' })
   @ApiResponse({ status: 200, description: 'Authorization checked' })
   async checkAuthorization(
     @Query('petDID') petDID: string,
@@ -100,6 +105,7 @@ export class AdminController {
     summary: 'Get transaction receipt by hash',
     description: 'Get detailed transaction receipt information',
   })
+  @ApiParam({ name: 'txHash', description: 'Transaction hash', example: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef' })
   @ApiResponse({ status: 200, description: 'Transaction receipt retrieved' })
   async getTransactionReceipt(@Param('txHash') txHash: string) {
     return this.adminService.getTransactionReceipt(txHash);
@@ -113,6 +119,7 @@ export class AdminController {
     summary: 'Get block by number',
     description: 'Get detailed block information',
   })
+  @ApiParam({ name: 'blockNumber', description: 'Block number', example: '12345' })
   @ApiResponse({ status: 200, description: 'Block info retrieved' })
   async getBlock(@Param('blockNumber') blockNumber: string) {
     return this.adminService.getBlock(parseInt(blockNumber));

@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dogcatpaw-api-gateway-config
+  namespace: petdid-network
+data:
+  # Redis Configuration
+  REDIS_HOST: "redis-16504.c340.ap-northeast-2-1.ec2.redns.redis-cloud.com"
+  REDIS_PORT: "16504"
+
+  # Hash Configuration
+  HASH_ROUNDS: "10"
+
+  # Email Configuration
+  EMAIL_USER: "ahwlsqja1324@gmail.com"
+
+  # Environment
+  NODE_ENV: "production"
+
+  # Microservice URLs
+  VC_SERVICE_URL: "vc-server:50051"
+  INDEXER_SERVICE_URL: "blockchain-indexer-service:50053"
+  ML_SERVICE_URL: "nose-embedder-service:50052"
+  SPRING_SERVER_URL: "http://spring-api-service"
+
+  # Blockchain Configuration
+  CHAIN_ID: "1337"
+  RPC_URL: "http://besu-networ-besu-rpc-ext-43e7a-108790139-4b974a576079.kr.lb.naverncp.com:8545"
+  PET_DID_REGISTRY_ADDRESS: "0xBF921f94Fd9eF1738bE25D8CeCFDFE2C822c81B0"
+  GUARDIAN_REGISTRY_ADDRESS: "0xBeC8a9e485a4B75d3b14249de7CA6D124fE94795"
+  SHELTER_REGISTRY_ADDRESS: "0x3Ace09BBA3b8507681146252d3Dd33cD4E2d4F63"
+  NETWORK_NAME: "Hyperledger Besu"
+  DIDMETHOD: "ethr"
+  DIDNETWORK: "besu"
+
+  # AWS/NCP Object Storage Configuration
+  AWS_REGION: "kr-standard"
+  AWS_ENDPOINT: "https://kr.object.ncloudstorage.com"
+  AWS_S3_BUCKET_NAME2: "dogcatpaw-backend"
+
+  # Bull Queue Configuration (local Redis in Kubernetes)
+  BULL_REDIS_HOST: "bullqueue-redis-service"
+  BULL_REDIS_PORT: "6379"

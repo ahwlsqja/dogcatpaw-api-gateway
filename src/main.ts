@@ -17,7 +17,34 @@ async function bootstrap() {
     .setTitle('DID API Gateway')
     .setDescription('DID API Gateway for VC Service and other services')
     .setVersion('1.0')
-    .addTag('vc')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'Authorization',
+        description: 'Enter JWT token',
+        in: 'header',
+      },
+      'access-token',
+    )
+    .addApiKey(
+      {
+        type: 'apiKey',
+        name: 'X-Admin-Key',
+        in: 'header',
+        description: 'Admin API Key for administrative endpoints',
+      },
+      'X-Admin-Key',
+    )
+    .addTag('Admin', 'Admin endpoints for blockchain management')
+    .addTag('Authentication', 'Authentication endpoints')
+    .addTag('Guardian', 'Guardian management endpoints')
+    .addTag('Pet', 'Pet registration and management')
+    .addTag('VC', 'Verifiable Credentials endpoints')
+    .addTag('Email', 'Email verification endpoints')
+    .addTag('Spring Backend Proxy', 'Spring backend proxy endpoints')
+    .addTag('Common', 'Common utility endpoints')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

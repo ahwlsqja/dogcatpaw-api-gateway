@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bullqueue-redis-pvc
+  namespace: petdid-network
+  labels:
+    app: bullqueue-redis
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # Storage class - use default or specify NCP storage class
+  # storageClassName: nks-block-storage

@@ -17,7 +17,7 @@ import { NoseEmbedderProxyService } from './nose-embedding.proxy.service';
         options: {
           package: 'nose_embedder',
           protoPath: join(__dirname, '../../proto/nose_embedder.proto'), // Adjust path to your proto file location
-          url: 'localhost:50052', // gRPC server address (FastAPI server)
+          url: process.env.ML_SERVICE_URL, // gRPC server address (FastAPI server)
           loader: {
             keepCase: true,
             longs: String,

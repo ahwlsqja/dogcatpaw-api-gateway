@@ -107,7 +107,7 @@ export class CommonService {
         }
     }
 
-    // 저장된 입양일지 사진을 pet 폴더로 이동시키는 함수
+    // 저장된 일상일지 사진을 일상일지 폴더로 이동시키는 함수
     async saveDiaryToPermanentStorage(fileName: string) {
         try {
             const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
@@ -115,6 +115,73 @@ export class CommonService {
                 Bucket: bucketName,
                 CopySource: `${bucketName}/temp/${fileName}`,
                 Key: `diary/${fileName}`,
+                ACL: 'public-read',
+            });
+
+            await this.s3
+                .deleteObject({
+                    Bucket: bucketName,
+                    Key: `temp/${fileName}`,
+                });
+        } catch (e) {
+            console.log(e);
+            throw new InternalServerErrorException('S3 에러!');
+        }
+    }
+
+    // 저장된 입양 후기 일지 사진을 입양 후기 일지 폴더로 이동시키는 함수
+    async saveReviewToPermanentStorage(fileName: string) {
+        try {
+            const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            await this.s3.copyObject({
+                Bucket: bucketName,
+                CopySource: `${bucketName}/temp/${fileName}`,
+                Key: `review/${fileName}`,
+                ACL: 'public-read',
+            });
+
+            await this.s3
+                .deleteObject({
+                    Bucket: bucketName,
+                    Key: `temp/${fileName}`,
+                });
+        } catch (e) {
+            console.log(e);
+            throw new InternalServerErrorException('S3 에러!');
+        }
+    }
+
+
+    // 저장된 입양 공고 사진을 adoption 폴더로 이동시키는 함수
+    async saveAdoptionToPermanentStorage(fileName: string) {
+        try {
+            const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            await this.s3.copyObject({
+                Bucket: bucketName,
+                CopySource: `${bucketName}/temp/${fileName}`,
+                Key: `adoption/${fileName}`,
+                ACL: 'public-read',
+            });
+
+            await this.s3
+                .deleteObject({
+                    Bucket: bucketName,
+                    Key: `temp/${fileName}`,
+                });
+        } catch (e) {
+            console.log(e);
+            throw new InternalServerErrorException('S3 에러!');
+        }
+    }
+
+    // 저장된 후원 게시글 사진을 donation 폴더로 이동시키는 함수
+    async saveDonationToPermanentStorage(fileName: string) {
+        try {
+            const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            await this.s3.copyObject({
+                Bucket: bucketName,
+                CopySource: `${bucketName}/temp/${fileName}`,
+                Key: `donation/${fileName}`,
                 ACL: 'public-read',
             });
 
@@ -178,6 +245,33 @@ export class CommonService {
         } catch (error) {
             console.error('Error uploading feature vector to S3:', error);
             throw new InternalServerErrorException('Feature vector 업로드 실패');
+        }
+    }
+
+    /**
+     * S3 temp 폴더에서 파일을 가져오는 함수
+     * @param fileName - 파일 이름
+     * @returns 파일 버퍼
+     */
+    async getFileFromTemp(fileName: string): Promise<Buffer> {
+        try {
+            const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            const command = new GetObjectCommand({
+                Bucket: bucketName,
+                Key: `temp/${fileName}`
+            });
+
+            const result = await this.s3.send(command);
+            const chunks: Uint8Array[] = [];
+
+            for await (const chunk of result.Body as any) {
+                chunks.push(chunk);
+            }
+
+            return Buffer.concat(chunks);
+        } catch (error) {
+            console.error('Error retrieving file from S3 temp:', error);
+            throw new InternalServerErrorException(`S3 temp 폴더에서 파일을 가져오는데 실패했습니다: ${fileName}`);
         }
     }
 

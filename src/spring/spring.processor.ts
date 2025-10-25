@@ -22,6 +22,8 @@ export interface UserRegisterJob {
   gender?: string;
   old?: number;
   address?: string;
+  nickname?: string;
+  profileUrl?: string;
 }
 
 export interface PetTransferJob {
@@ -118,7 +120,9 @@ export class SpringProcessor {
       name,
       gender,
       old,
-      address
+      address,
+      profileUrl,
+      nickname
     } = job.data;
 
     try {
@@ -128,14 +132,15 @@ export class SpringProcessor {
       const signupData = {
         walletAddress,
         username: name || walletAddress?.substring(0, 10) || 'unknown',
-        nickname: name || walletAddress?.substring(0, 8) || 'unknown',
+        nickname: nickname || walletAddress?.substring(0, 8) || 'unknown',
         gender: gender || '',
         old: old || 0,
         address: address || '',
         phoneNumber: phone || '',
         type: 'GUARDIAN',
-        role: Role.USER,
         email: email || '',
+        profileUrl: profileUrl,
+        role: Role.USER,
       };
 
       this.logger.debug(`Registering user to Spring: ${JSON.stringify(signupData)}`);
@@ -177,7 +182,9 @@ export class SpringProcessor {
       name,
       gender,
       old,
-      address
+      address,
+      profileUrl,
+      nickname
     } = job.data;
 
     try {
@@ -187,14 +194,15 @@ export class SpringProcessor {
       const signupData = {
         walletAddress,
         username: name || walletAddress?.substring(0, 10) || 'unknown',
-        nickname: name || walletAddress?.substring(0, 8) || 'unknown',
+        nickname: nickname || walletAddress?.substring(0, 8) || 'unknown',
         gender: gender || '',
         old: old || 0,
         address: address || '',
         phoneNumber: phone || '',
         type: 'GUARDIAN',
-        role: Role.ADMIN,
         email: email || '',
+        profileUrl: profileUrl,
+        role: Role.ADMIN,
       };
 
       this.logger.debug(`Registering user to Spring: ${JSON.stringify(signupData)}`);

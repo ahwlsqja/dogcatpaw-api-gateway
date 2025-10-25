@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: dogcatpaw-api-gateway-service
+  namespace: petdid-network
+  labels:
+    app: dogcatpaw-api-gateway
+spec:
+  # Service Type Options:
+  # - ClusterIP: Internal access only (default)
+  # - LoadBalancer: External access via NCP Load Balancer
+  # - NodePort: External access via Node IP:Port
+  type: LoadBalancer
+
+  selector:
+    app: dogcatpaw-api-gateway
+
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80          # External port
+    targetPort: 3000  # Container port
+    # nodePort: 30000 # Optional: specify if type is NodePort
+
+  # Session affinity (optional)
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+
+  # Load balancer options (for NCP NKS)
+  # Uncomment and configure if using LoadBalancer type
+  # annotations:
+  #   service.beta.kubernetes.io/ncloud-load-balancer-layer-type: "nlb"
+  #   service.beta.kubernetes.io/ncloud-load-balancer-internal: "false"

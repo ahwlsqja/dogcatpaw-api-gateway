@@ -14,6 +14,7 @@ export class SpringService {
 
   constructor(
     @InjectQueue('spring-sync') private readonly springQueue: Queue,
+    @InjectQueue('image-move') private readonly imageMoveQueue: Queue,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
@@ -33,8 +34,11 @@ export class SpringService {
       gender?: string;
       old?: number;
       address?: string;
+      username?: string;
+      profileUrl?: string;
+      nickname?: string;
     }
-  ) {
+  ): Promise<string | number> {
     const job = await this.springQueue.add('register-user', {
       walletAddress,
       email: guardianDto.email,
@@ -43,6 +47,9 @@ export class SpringService {
       gender: guardianDto.gender,
       old: guardianDto.old,
       address: guardianDto.address,
+      username: guardianDto.username,
+      profileUrl: guardianDto.profileUrl,
+      nickname: guardianDto.nickname
     }, {
       priority: 1,
     });
@@ -60,8 +67,11 @@ export class SpringService {
       gender?: string;
       old?: number;
       address?: string;
+      username?: string;
+      profileUrl?: string;
+      nickname?: string;
     }
-  ) {
+  ): Promise<string | number> {
     const job = await this.springQueue.add('register-admin', {
       walletAddress,
       email: guardianDto.email,
@@ -70,6 +80,9 @@ export class SpringService {
       gender: guardianDto.gender,
       old: guardianDto.old,
       address: guardianDto.address,
+      username: guardianDto.username,
+      profileUrl: guardianDto.profileUrl,
+      nickname: guardianDto.nickname
     }, {
       priority: 1,
     });
@@ -159,7 +172,7 @@ export class SpringService {
       specifics: string;
       images: string
     }
-  ) {
+  ): Promise<string | number> {
     const job = await this.springQueue.add('sync-pet-registration', {
       guardianAddress,
       petDID,
@@ -304,5 +317,92 @@ export class SpringService {
         error: error.message
       };
     }
+  }
+
+  /**
+   * Queue pet image move (nose print + profile images)
+   * After completion, this will trigger Spring sync
+   */
+  async queuePetImageMove(
+    petDID: string,
+    noseImageFileName: string,
+    profileImageFileNames: string[],
+    guardianAddress: string,
+    petData: {
+      petName?: string;
+      breed?: string;
+      old?: number;
+      weight?: number;
+      gender?: string;
+      color?: string;
+      feature?: string;
+      neutral?: boolean;
+      specifics: string;
+      images: string;
+    }
+  ): Promise<string | number> {
+    const job = await this.imageMoveQueue.add('move-pet-images', {
+      petDID,
+      noseImageFileName,
+      profileImageFileNames,
+      guardianAddress,
+      petData,
+    }, {
+      priority: 1,
+    });
+
+    this.logger.log(`Queued pet image move job ${job.id} for pet ${petDID}`);
+    return job.id;
+  }
+
+  /**
+   * Get image move job status
+   */
+  async getImageMoveJobStatus(jobId: string) {
+    const job = await this.imageMoveQueue.getJob(jobId);
+    if (!job) {
+      return null;
+    }
+
+    const state = await job.getState();
+    return {
+      id: job.id,
+      state,
+      progress: job.progress(),
+      data: job.data,
+      failedReason: job.failedReason,
+      attemptsMade: job.attemptsMade,
+    };
+  }
+
+  /**
+   * Queue guardian profile image move
+   * After completion, this will trigger Spring sync
+   */
+  async queueGuardianImageMove(
+    guardianAddress: string,
+    profileImageFileName: string,
+    guardianData: {
+      email?: string;
+      phone?: string;
+      name?: string;
+      gender?: string;
+      old?: number;
+      address?: string;
+      nickname?: string;
+    },
+    role: 'USER' | 'ADMIN'
+  ): Promise<string | number> {
+    const job = await this.imageMoveQueue.add('move-guardian-image', {
+      guardianAddress,
+      profileImageFileName,
+      guardianData,
+      role,
+    }, {
+      priority: 1,
+    });
+
+    this.logger.log(`Queued guardian image move job ${job.id} for guardian ${guardianAddress}`);
+    return job.id;
   }
 }

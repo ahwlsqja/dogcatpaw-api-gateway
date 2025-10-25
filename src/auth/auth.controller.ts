@@ -1,5 +1,5 @@
 import { Controller, Post, Body, Get, UseGuards, Req, HttpException, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { VcProxyService } from '../vc/vc.proxy.service';
@@ -11,6 +11,9 @@ import { ConfigService } from '@nestjs/config';
 import { envVariableKeys } from 'src/common/const/env.const';
 import { SpringProxyService } from 'src/spring/spring.proxy.service';
 import { VCErrorCode } from 'src/common/const/vc-error-codes';
+import { ChallengeRequestDto, ChallengeResponseDto } from './dto/challenge.dto';
+import { LoginRequestDto, LoginResponseDto } from './dto/login.dto';
+import { ProfileResponseDto, LogoutResponseDto } from './dto/profile.dto';
 
 @ApiTags('Authentication')
 @Controller('api/auth')
@@ -28,8 +31,40 @@ export class AuthController {
    * VP 서명 데이터도 함께 반환
    */
   @Post('challenge')
-  @ApiOperation({ summary: '로그인하기 위한 서명 (challenge + VP signing data)' })
-  async getChallenge(@Body() dto: { walletAddress: string }) {
+  @ApiOperation({
+    summary: 'Step 1: Get Challenge for Wallet Signature',
+    description: `
+**DID-based Authentication Flow - Step 1**
+
+Request a challenge message to sign with your wallet. This endpoint also returns VP (Verifiable Presentation) signing data if the user has any Verifiable Credentials.
+
+**CRITICAL: Wallet Address Format**
+- ⚠️ Wallet address MUST be lowercase
+- ❌ WRONG: "0xE9ebc691cCFB15Cb4bf31Af83c624b7020f0d2C0"
+- ✅ CORRECT: "0xe9ebc691ccfb15cb4bf31af83c624b7020f0d2c0"
+
+**Flow:**
+1. Send wallet address (lowercase)
+2. Receive challenge string + VP signing data (if VCs exist)
+3. Sign both:
+   - Challenge with wallet.signMessage(challenge)
+   - VP messageHash with wallet.signMessage(messageHash)
+4. Submit signatures to /api/auth/login
+
+**Challenge Expiration:** 5 minutes (300 seconds)
+    `,
+  })
+  @ApiBody({ type: ChallengeRequestDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Challenge and VP signing data successfully generated',
+    type: ChallengeResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request - Invalid wallet address format',
+  })
+  async getChallenge(@Body() dto: ChallengeRequestDto) {
     const challenge = await this.authService.createChallenge(dto.walletAddress);
 
     // VCs 가져오기 (VP 생성용)
@@ -71,17 +106,52 @@ export class AuthController {
    * API Gateway 세션 생성 + VP 생성 (vpSignature 필요)
    */
   @Post('login')
-  @ApiOperation({ summary: 'Login with wallet signature and VP signature' })
-  async login(
-    @Body() dto: {
-      walletAddress: string;
-      signature: string;
-      challenge: string;
-      vpSignature?: string;
-      vpMessage?: any;
-      vpSignedData?: string;
-    }
-  ) {
+  @ApiOperation({
+    summary: 'Step 2: Login with Wallet Signature and VP',
+    description: `
+**DID-based Authentication Flow - Step 2**
+
+Verify wallet signature and create authenticated session. If user has VCs, also verifies VP signature and creates VP JWT.
+
+**CRITICAL: Wallet Address Format**
+- ⚠️ Wallet address MUST be lowercase
+- Backend normalizes all addresses to lowercase for comparison
+- Mixed-case addresses will result in "wallet not found" error
+
+**Request Flow:**
+1. Submit signed challenge from Step 1
+2. Submit VP signature (if you received vpSigningData in Step 1)
+3. Receive access token + refresh token + VP JWT
+4. Store tokens securely (localStorage or httpOnly cookies)
+
+**Authentication:**
+- Access Token: Use in Authorization header for API calls
+- Refresh Token: Use to obtain new access token when expired
+- VP JWT: Verifiable Presentation (EMPTY if no VCs)
+
+**Success Response:**
+- accessToken: JWT for API authentication
+- refreshToken: Token to refresh session
+- vpJwt: Verifiable Presentation JWT
+- profile: User profile including guardian info and VC count
+
+**Next Steps:**
+- Store tokens securely
+- Use accessToken in Authorization: Bearer {token} header
+- Check profile.guardianInfo to determine if guardian registration needed
+    `,
+  })
+  @ApiBody({ type: LoginRequestDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Login successful - tokens and profile returned',
+    type: LoginResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid signature or challenge expired',
+  })
+  async login(@Body() dto: LoginRequestDto) {
     try {
       // 1. 지갑 서명 검증
       const isValid = await this.authService.verifySignature(
@@ -198,8 +268,46 @@ export class AuthController {
    */
   @Get('profile')
   @UseGuards(DIDAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get user profile with VCs' })
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Get User Profile',
+    description: `
+**Get Authenticated User Profile**
+
+Retrieve complete user profile including:
+- DID and wallet address
+- Guardian registration status and info
+- Verifiable Credentials count (total, pets, identity)
+- List of owned pets with VC data
+
+**Authentication Required:**
+- Include access token in Authorization header
+- Format: "Authorization: Bearer {accessToken}"
+
+**Profile Information:**
+- did: Decentralized Identifier
+- walletAddress: Ethereum wallet address
+- isGuardian: Whether user is registered as guardian
+- guardianInfo: Guardian details (null if not registered)
+- credentials: VC statistics breakdown
+- pets: Array of owned pets with VC info
+
+**Use Cases:**
+- Check guardian registration status
+- Display user dashboard
+- Show owned pets list
+- Verify VC ownership
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Profile successfully retrieved',
+    type: ProfileResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or expired token',
+  })
   async getProfile(@Req() req: Request) {
     const walletAddress = req.user?.address;
 
@@ -257,8 +365,44 @@ export class AuthController {
    */
   @Post('logout')
   @UseGuards(DIDAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Logout current session (1 session)' })
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Logout Current Session',
+    description: `
+**Logout from Current Device/Session**
+
+Revoke the current access token and associated VP. This only logs out the current session.
+
+**What Happens:**
+- Current access token is blocked and cannot be reused
+- Associated VP JWT is deleted
+- VP verification cache is cleared
+- Other sessions on different devices remain active
+
+**Authentication Required:**
+- Include current access token in Authorization header
+- Format: "Authorization: Bearer {accessToken}"
+
+**Use Cases:**
+- User logs out from current device
+- Switch accounts on same device
+- Security: Revoke compromised session
+
+**Note:**
+- To logout from all devices, use POST /api/auth/logout-all
+- Tokens cannot be reused after logout
+- User must login again to get new tokens
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Current session logged out successfully',
+    type: LogoutResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or expired token',
+  })
   async logout(@Req() req: Request) {
     const token = req.headers.authorization?.replace('Bearer ', '');
 
@@ -280,8 +424,50 @@ export class AuthController {
    */
   @Post('logout-all')
   @UseGuards(DIDAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Logout all sessions (entire logout)' })
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Logout All Sessions',
+    description: `
+**Logout from All Devices/Sessions**
+
+Revoke ALL access tokens and VPs for this wallet address. This logs out all sessions on all devices.
+
+**What Happens:**
+- ALL access tokens for this wallet are blocked
+- ALL associated VPs are deleted
+- User is logged out from all devices (mobile, desktop, tablet, etc.)
+- All active sessions are terminated
+
+**Authentication Required:**
+- Include access token in Authorization header
+- Format: "Authorization: Bearer {accessToken}"
+
+**Use Cases:**
+- Security: Suspect account compromise
+- User wants fresh start on all devices
+- Lost device - revoke all sessions remotely
+- Change wallet password/keys
+
+**Important:**
+- This is irreversible - all active sessions will be terminated
+- User must login again on ALL devices
+- Cannot recover previous sessions
+- Use with caution
+
+**Note:**
+- For single device logout, use POST /api/auth/logout
+- Recommended after security incidents
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'All sessions logged out successfully',
+    type: LogoutResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or expired token',
+  })
   async logoutAll(@Req() req: Request) {
     const walletAddress = req.user?.address;
 

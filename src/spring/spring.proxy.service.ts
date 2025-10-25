@@ -4,6 +4,7 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { ConfigService } from '@nestjs/config';
 import { envVariableKeys } from 'src/common/const/env.const';
+import { CommonService } from 'src/common/common.service';
 
 // Import DTOs
 import { VcSyncDto } from './dto/vc-sync.dto';
@@ -21,12 +22,24 @@ import { CreateDonationPostDto, MakeDonationDto, PreparePaymentDto, ApprovePayme
 export class SpringProxyService {
   private readonly logger = new Logger(SpringProxyService.name);
   private springBaseUrl: string;
+  private s3Endpoint: string;
+  private s3BucketName: string;
 
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly commonService: CommonService,
   ) {
     this.springBaseUrl = this.configService.get<string>(envVariableKeys.springurl) || 'http://localhost:8080';
+    this.s3Endpoint = this.configService.get<string>(envVariableKeys.endpoint);
+    this.s3BucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+  }
+
+  /**
+   * Generate full S3 public URL
+   */
+  private generateS3Url(key: string): string {
+    return `${this.s3Endpoint}/${this.s3BucketName}/${key}`;
   }
 
   /**
@@ -143,6 +156,22 @@ export class SpringProxyService {
 
   // 연결 완료
   async createAdoptionPost(data: CreateAdoptionPostDto, headers?: any) {
+    // Move images from temp to adoption folder
+    if (data.images && data.images.trim()) {
+      const imageFileNames = data.images.split(',').map(name => name.trim()).filter(name => name);
+      const movedImageUrls: string[] = [];
+
+      for (const imageFileName of imageFileNames) {
+        await this.commonService.saveAdoptionToPermanentStorage(imageFileName);
+        const imageUrl = this.generateS3Url(`adoption/${imageFileName}`);
+        movedImageUrls.push(imageUrl);
+        this.logger.log(`✅ Adoption image moved: adoption/${imageFileName} -> ${imageUrl}`);
+      }
+
+      // Update data with full S3 URLs
+      data.images = movedImageUrls.join(',');
+    }
+
     return this.proxyToSpring('post', '/api/adoption/post', data, undefined, headers);
   }
 
@@ -153,6 +182,22 @@ export class SpringProxyService {
 
   // ==================== Daily Story API ====================
   async createDailyStory(data: CreateDailyStoryDto, headers?: any) {
+    // Move images from temp to diary folder
+    if (data.images && data.images.trim()) {
+      const imageFileNames = data.images.split(',').map(name => name.trim()).filter(name => name);
+      const movedImageUrls: string[] = [];
+
+      for (const imageFileName of imageFileNames) {
+        await this.commonService.saveDiaryToPermanentStorage(imageFileName);
+        const imageUrl = this.generateS3Url(`diary/${imageFileName}`);
+        movedImageUrls.push(imageUrl);
+        this.logger.log(`✅ Daily story image moved: diary/${imageFileName} -> ${imageUrl}`);
+      }
+
+      // Update data with full S3 URLs
+      data.images = movedImageUrls.join(',');
+    }
+
     return this.proxyToSpring('post', '/api/story/daily', data, undefined, headers);
   }
 
@@ -170,6 +215,22 @@ export class SpringProxyService {
 
   // ==================== Review Story API ====================
   async createReviewStory(data: CreateReviewStoryDto, headers?: any) {
+    // Move images from temp to review folder
+    if (data.images && data.images.trim()) {
+      const imageFileNames = data.images.split(',').map(name => name.trim()).filter(name => name);
+      const movedImageUrls: string[] = [];
+
+      for (const imageFileName of imageFileNames) {
+        await this.commonService.saveReviewToPermanentStorage(imageFileName);
+        const imageUrl = this.generateS3Url(`review/${imageFileName}`);
+        movedImageUrls.push(imageUrl);
+        this.logger.log(`✅ Review story image moved: review/${imageFileName} -> ${imageUrl}`);
+      }
+
+      // Update data with full S3 URLs
+      data.images = movedImageUrls.join(',');
+    }
+
     return this.proxyToSpring('post', '/api/story/review', data, undefined, headers);
   }
 
@@ -222,6 +283,22 @@ export class SpringProxyService {
 
   // ==================== Donation API ====================
   async createDonationPost(data: CreateDonationPostDto, headers?: any) {
+    // Move images from temp to donation folder
+    if (data.images && data.images.trim()) {
+      const imageFileNames = data.images.split(',').map(name => name.trim()).filter(name => name);
+      const movedImageUrls: string[] = [];
+
+      for (const imageFileName of imageFileNames) {
+        await this.commonService.saveDonationToPermanentStorage(imageFileName);
+        const imageUrl = this.generateS3Url(`donation/${imageFileName}`);
+        movedImageUrls.push(imageUrl);
+        this.logger.log(`✅ Donation image moved: donation/${imageFileName} -> ${imageUrl}`);
+      }
+
+      // Update data with full S3 URLs
+      data.images = movedImageUrls.join(',');
+    }
+
     return this.proxyToSpring('post', '/api/donation/posts', data, undefined, headers);
   }
 

@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bullqueue-redis
+  namespace: petdid-network
+  labels:
+    app: bullqueue-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bullqueue-redis
+  template:
+    metadata:
+      labels:
+        app: bullqueue-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+          name: redis
+          protocol: TCP
+
+        # Resource limits (lightweight for contest)
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+
+        # Redis configuration
+        command:
+        - redis-server
+        - --appendonly
+        - "yes"
+        - --maxmemory
+        - "200mb"
+        - --maxmemory-policy
+        - "allkeys-lru"
+
+        # Volume mount for data persistence
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+
+        # Liveness probe
+        livenessProbe:
+          tcpSocket:
+            port: 6379
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        # Readiness probe
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: bullqueue-redis-pvc
+
+      restartPolicy: Always

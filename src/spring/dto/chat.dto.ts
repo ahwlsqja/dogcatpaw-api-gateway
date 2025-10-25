@@ -1,19 +1,58 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsOptional, IsLowercase } from 'class-validator';
 
 export class CreateChatRoomDto {
-  @ApiProperty({ description: 'Adoption post writer ID' })
-  @IsNumber()
+  @ApiProperty({
+    description: 'Wallet address of adoption post writer (Guardian who created the adoption post)',
+    example: '0xe9ebc691ccfb15cb4bf31af83c624b7020f0d2c0',
+    required: true,
+  })
+  @IsString()
   @IsNotEmpty()
-  adoptWriterId: number;
+  @IsLowercase({ message: 'Wallet address must be lowercase' })
+  adoptWriterId: string;
 
-  @ApiProperty({ description: 'Adoption post ID' })
+  @ApiProperty({
+    description: 'Adoption post ID to create chat room for',
+    example: 456,
+    required: true,
+  })
   @IsNumber()
   @IsNotEmpty()
   adoptId: number;
 
-  @ApiProperty({ description: 'Room name', required: false })
+  @ApiProperty({
+    description: 'Custom room name (optional, defaults to adoption post title)',
+    example: '골든 리트리버 입양 문의',
+    required: false,
+  })
   @IsString()
   @IsOptional()
   roomName?: string;
+}
+
+export class ChatRoomResponseDto {
+  @ApiProperty({
+    description: 'Created chat room ID',
+    example: 123,
+  })
+  roomId: number;
+
+  @ApiProperty({
+    description: 'Adoption post ID',
+    example: 456,
+  })
+  adoptId: number;
+
+  @ApiProperty({
+    description: 'Room name',
+    example: '골든 리트리버 입양 문의',
+  })
+  roomName: string;
+
+  @ApiProperty({
+    description: 'Room creation timestamp',
+    example: '2025-10-25T12:00:00.000Z',
+  })
+  createdAt: string;
 }

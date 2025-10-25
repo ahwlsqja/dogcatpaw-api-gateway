@@ -1,6 +1,5 @@
 // api-gateway/src/pet/pet.controller.ts
-import { Controller, Get, Post, Body, Param, UseGuards, Req, UseInterceptors, UploadedFile, BadRequestException, HttpStatus, HttpException } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { Controller, Get, Post, Body, Param, UseGuards, Req, BadRequestException, HttpStatus, HttpException } from '@nestjs/common';
 import { Request } from 'express';
 import { PetService } from './pet.service';
 import { CreatePetDto } from './dto/create-pet.dto';
@@ -23,7 +22,7 @@ import { Public } from '../auth/decorator/public.decorator';
 import { IndexerProxyService } from 'src/indexer/indexer.proxy.service';
 
 @ApiTags('Pet')
-@ApiBearerAuth()
+@ApiBearerAuth('access-token')
 @Controller('pet')
 export class PetController {
   constructor(
@@ -52,13 +51,208 @@ export class PetController {
    */
   @Post('prepare-registration')
   @UseGuards(DIDAuthGuard)
-  @UseInterceptors(FileInterceptor('noseImage'))
-  @ApiOperation({ summary: '펫 등록 준비 - 서명 데이터 생성 (블록체인 등록 전)' })
-  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Step 1: Prepare Pet Registration - Generate Signing Data',
+    description: `
+**Prepare all signing data for pet registration (3 signatures required)**
+
+This is the first step in the pet registration process. This endpoint analyzes the nose print biometric data and prepares three transactions for the guardian to sign.
+
+**Complete Pet Registration Flow:**
+\`\`\`
+Step 0: Upload images to S3 (POST /common for presigned URLs)
+Step 1: This endpoint - Get signing data (3 transactions)
+Step 2: Client signs all 3 transactions locally
+Step 3: POST /pet/register - Submit signatures → Background processing
+\`\`\`
+
+**What This Endpoint Does:**
+1. Verifies guardian is registered in VC service
+2. Downloads nose print image from S3 temp folder
+3. Sends image to ML server for feature vector extraction (biometric signature)
+4. Calculates Pet DID from feature vector: \`did:ethr:besu:{keccak256(vector)}\`
+5. Prepares 3 transactions for guardian to sign:
+   - **Pet Registration TX**: Register Pet DID on blockchain
+   - **Guardian Link TX**: Link pet to guardian's profile
+   - **VC Signing Data**: Guardian consent for VC issuance
+
+**Before Calling This Endpoint:**
+You must upload images to S3 using POST /common:
+\`\`\`javascript
+// 1. Get presigned URL for nose image
+const noseUrlResponse = await fetch('/common', {
+  method: 'POST',
+  headers: { 'Authorization': 'Bearer ' + accessToken }
+});
+const { url: nosePresignedUrl } = await noseUrlResponse.json();
+
+// 2. Upload nose image to S3
+await fetch(nosePresignedUrl, {
+  method: 'PUT',
+  body: noseImageFile,
+  headers: { 'Content-Type': 'image/jpeg' }
+});
+
+// 3. Extract filename from URL
+const noseFileName = new URL(nosePresignedUrl).pathname.split('/').pop();
+
+// 4. Repeat for pet profile images
+// 5. Call this endpoint with filenames
+\`\`\`
+
+**Pet DID Generation:**
+\`\`\`
+1. Nose image → ML Server → Feature vector (512-dimensional array)
+2. Feature vector → keccak256 hash → Feature Vector Hash
+3. Pet DID = "did:ethr:besu:{featureVectorHash}"
+
+Example: did:ethr:besu:0x1234567890abcdef...
+\`\`\`
+
+**Response - 3 Transactions to Sign:**
+
+**1. Pet Registration Transaction:**
+\`\`\`javascript
+{
+  to: "0x...",  // PetDIDRegistry contract address
+  data: "0x...", // registerPetDID function call
+  gasLimit: "3000000",
+  gasPrice: "0",
+  value: "0",
+  from: "0x...",  // Guardian address
+}
+\`\`\`
+
+**2. Guardian Link Transaction:**
+\`\`\`javascript
+{
+  to: "0x...",  // GuardianRegistry contract address
+  data: "0x...", // linkPet function call
+  gasLimit: "3000000",
+  gasPrice: "0",
+  value: "0",
+  from: "0x...",  // Guardian address
+}
+\`\`\`
+
+**3. VC Signing Data:**
+\`\`\`javascript
+{
+  message: {
+    vcType: "GuardianIssuedPetVC",
+    sub: "did:ethr:besu:0x...",  // Pet DID
+    guardian: "0x...",
+    biometricHash: "0x...",
+    petData: { petName, breed, age, ... },
+    issuedAt: "2025-10-25T12:00:00Z",
+    nonce: "random-string"
+  },
+  messageHash: "0x..."  // keccak256 of message for signing
+}
+\`\`\`
+
+**Next Steps After Receiving Response:**
+\`\`\`javascript
+// 1. Sign Pet Registration TX
+const petTx = {
+  to: response.petRegistrationTxData.to,
+  data: response.petRegistrationTxData.data,
+  gasLimit: ethers.toBeHex(3000000),
+  gasPrice: ethers.toBeHex(0),
+  value: 0,
+  nonce: await provider.getTransactionCount(wallet.address),
+  chainId: 1337
+};
+const petSignedTx = await wallet.signTransaction(petTx);
+
+// 2. Sign Guardian Link TX (nonce + 1)
+const linkTx = {
+  to: response.guardianLinkTxData.to,
+  data: response.guardianLinkTxData.data,
+  gasLimit: ethers.toBeHex(3000000),
+  gasPrice: ethers.toBeHex(0),
+  value: 0,
+  nonce: await provider.getTransactionCount(wallet.address) + 1,
+  chainId: 1337
+};
+const linkSignedTx = await wallet.signTransaction(linkTx);
+
+// 3. Sign VC Message
+const vcSignature = await wallet.signMessage(response.vcSigningData.messageHash);
+
+// 4. Submit all signatures to POST /pet/register
+\`\`\`
+
+**Important Notes:**
+- This endpoint does NOT submit transactions to blockchain
+- It only prepares signing data and calculates Pet DID
+- Guardian Link TX must use nonce+1 (executes after Pet Registration)
+- All 3 signatures are submitted together in next step
+
+**Image Requirements:**
+- Nose image: Clear, high-resolution nose print photo
+- Format: JPEG or PNG
+- Size: Recommended < 5MB
+- Quality: Must be clear enough for ML feature extraction
+
+**Error Cases:**
+- Guardian not registered → 400 Bad Request
+- Nose image not found in S3 → 400 Bad Request
+- ML server fails to extract features → 400 Bad Request
+- Invalid image format → 400 Bad Request
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Signing data prepared successfully',
+    schema: {
+      example: {
+        success: true,
+        petDID: 'did:ethr:besu:0x1234567890abcdef...',
+        message: 'Sign all three transactions and submit to POST /pet/register',
+        petRegistrationTxData: {
+          to: '0x...',
+          data: '0x...',
+          from: '0x...',
+          gasLimit: '3000000',
+          gasPrice: '0',
+          value: '0'
+        },
+        guardianLinkTxData: {
+          to: '0x...',
+          data: '0x...',
+          from: '0x...',
+          gasLimit: '3000000',
+          gasPrice: '0',
+          value: '0'
+        },
+        vcSigningData: {
+          message: {
+            vcType: 'GuardianIssuedPetVC',
+            sub: 'did:ethr:besu:0x...',
+            guardian: '0x...',
+            biometricHash: '0x...',
+            petData: {},
+            issuedAt: '2025-10-25T12:00:00Z',
+            nonce: 'abc123'
+          },
+          messageHash: '0x...'
+        },
+        nextStep: 'Sign petRegistrationTx, guardianLinkTx, and vcMessageHash, then call POST /pet/register with all signatures'
+      }
+    }
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request - Guardian not registered, image not found, or ML extraction failed'
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or expired token'
+  })
   async prepareRegistration(
     @Req() req: Request,
-    @Body() dto: CreatePetDto,
-    @UploadedFile() noseImage?: Express.Multer.File
+    @Body() dto: CreatePetDto
   ) {
     const guardianAddress = req.user?.address;
 
@@ -74,28 +268,34 @@ export class PetController {
       };
     }
 
-    // 2. 비문 벡터 추출
-    if (!noseImage) {
+    // 2. 비문 이미지 확인
+    if (!dto.noseImage) {
       throw new BadRequestException('비문 이미지가 필요합니다.');
     }
 
-    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png'];
-    if (!allowedMimeTypes.includes(noseImage.mimetype)) {
-      throw new BadRequestException('Invalid file type. Only JPEG and PNG are allowed');
+    // 3. S3 temp 폴더에서 비문 이미지 가져오기
+    let noseImageBuffer: Buffer;
+    try {
+      noseImageBuffer = await this.commonService.getFileFromTemp(dto.noseImage);
+    } catch (error) {
+      console.error('S3에서 비문 이미지 가져오기 실패:', error);
+      throw new BadRequestException('비문 이미지를 찾을 수 없습니다.');
     }
 
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (noseImage.size > maxSize) {
-      throw new BadRequestException('File size exceeds 10MB limit');
+    // 4. 파일명에서 이미지 포맷 추출
+    const fileExtension = dto.noseImage.split('.').pop()?.toLowerCase();
+    const imageFormat = fileExtension === 'jpg' ? 'jpeg' : fileExtension;
+
+    if (!['jpeg', 'png'].includes(imageFormat)) {
+      throw new BadRequestException('Invalid file type. Only JPEG and PNG are allowed');
     }
 
     let featureVector: number[];
     let featureVectorHash: string;
 
     try {
-      const imageFormat = noseImage.mimetype.split('/')[1];
       const mlResult = await this.noseEmbedderService.extractNoseVector(
-        noseImage.buffer,
+        noseImageBuffer,
         imageFormat
       );
 
@@ -192,13 +392,211 @@ export class PetController {
    */
   @Post('register')
   @UseGuards(DIDAuthGuard)
-  @UseInterceptors(FileInterceptor('noseImage'))
-  @ApiOperation({ summary: 'PetDID 등록 - 서명 제출 및 백그라운드 처리' })
-  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Step 2: Submit Signatures and Register Pet on Blockchain',
+    description: `
+**Submit signed transactions and complete pet registration**
+
+This is the final step of pet registration. After signing all 3 transactions from Step 1 (prepare-registration), submit them here for blockchain execution and background processing.
+
+**What This Endpoint Does:**
+
+**Immediate Actions (Blocking):**
+1. Re-extracts nose print feature vector from S3 image
+2. Verifies Pet DID matches (ensures same biometric data)
+3. **Submits Pet Registration TX to blockchain** (blocks until confirmed)
+4. Saves feature vector to S3 permanent storage
+
+**Background Jobs (Non-blocking - BullMQ):**
+5. Queues Guardian Link transaction execution
+6. Queues VC (Verifiable Credential) creation
+7. Queues image move from temp → permanent storage
+8. Queues Spring backend synchronization
+
+**Transaction Execution Order:**
+\`\`\`
+1. Pet Registration TX (immediate) ✅ Blocks until confirmed
+   ↓
+2. Guardian Link TX (queued) → Executes in background
+3. VC Creation (queued) → Waits for Guardian Link
+4. Image Move (queued) → Triggers Spring sync when done
+\`\`\`
+
+**Complete Flow Example:**
+\`\`\`javascript
+// After signing in Step 1, submit signatures:
+
+const registerData = {
+  // Same pet data as prepare-registration
+  noseImage: noseFileName,
+  images: petImageFileNames.join(','),
+  petName: 'Max',
+  specifics: 'dog',
+  breed: 'GOLDEN_RETRIEVER',
+  old: 3,
+  gender: 'MALE',
+  weight: 25.5,
+  color: '황금색',
+  feature: '활발함',
+  neutral: true,
+
+  // Signed transactions from Step 1
+  signedTx: petSignedTx,  // Pet Registration (executed immediately)
+  guardianLinkSignedTx: guardianLinkSignedTx,  // Guardian Link (queued)
+  vcSignature: vcSignature,  // VC consent (queued)
+  vcMessage: JSON.stringify(vcMessage)  // Must be string
+};
+
+const response = await fetch('/pet/register', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ' + accessToken,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify(registerData)
+});
+
+const result = await response.json();
+console.log('Pet DID:', result.petDID);
+console.log('TX Hash:', result.txHash);
+console.log('Block Number:', result.blockNumber);
+console.log('Background Jobs:', result.jobs);
+\`\`\`
+
+**Response - Immediate Results:**
+\`\`\`javascript
+{
+  success: true,
+  petDID: "did:ethr:besu:0x1234567890abcdef...",
+  txHash: "0xabcdef1234567890...",  // Pet Registration TX
+  blockNumber: 12345,
+  message: "Pet registered successfully! Background jobs queued.",
+  jobs: {
+    guardianLink: "job-uuid-1",  // BullMQ job ID
+    vc: "job-uuid-2",
+    imageMove: "job-uuid-3"
+  },
+  note: "Images will be moved to permanent storage, then Spring sync will be triggered automatically."
+}
+\`\`\`
+
+**Background Jobs Details:**
+
+**1. Guardian Link Job (BullMQ):**
+- Submits guardianLinkSignedTx to blockchain
+- Links pet to guardian's profile in GuardianRegistry
+- Guardian can view pet in their pet list
+
+**2. VC Creation Job (BullMQ):**
+- Creates GuardianIssuedPetVC in VC service
+- Stores VC in database
+- VC contains pet data + biometric hash + guardian signature
+- Can be used for pet ownership proof
+
+**3. Image Move Job (BullMQ):**
+- Moves images from S3 temp folder → permanent folders:
+  - Nose print: \`nose-print-photo/{petDID}/filename.jpg\`
+  - Profile images: \`pet-profile-photo/{petDID}/filename.jpg\`
+- Triggers Spring backend sync after completion
+- Spring creates pet record in MySQL/PostgreSQL
+
+**Pet DID Verification:**
+- Endpoint re-extracts feature vector from nose image
+- Recalculates Pet DID and compares with prepare-registration result
+- Ensures no tampering between prepare and register calls
+- If mismatch detected → 400 Bad Request
+
+**Error Handling - Blockchain TX Fails:**
+\`\`\`javascript
+{
+  success: false,
+  error: "Pet registration failed",
+  errorCode: "NONCE_TOO_LOW",  // or other error codes
+  retryable: true,  // or false
+  txHash: "0x...",  // May be present
+  blockNumber: null,
+  details: { ... }  // Additional error info
+}
+\`\`\`
+
+**Error Codes:**
+- \`NONCE_TOO_LOW\`: Transaction nonce conflict (retryable)
+- \`INSUFFICIENT_FUNDS\`: Not enough gas (not retryable)
+- \`EXECUTION_REVERTED\`: Contract rejected TX (check pet DID uniqueness)
+- \`TIMEOUT\`: Blockchain timeout (retryable)
+
+**HTTP Status Codes:**
+- 200: Success
+- 400: Bad Request (invalid data, DID mismatch, contract revert)
+- 401: Unauthorized (invalid token)
+- 503: Service Unavailable (retryable blockchain errors)
+
+**Important Notes:**
+- Only Pet Registration TX is executed immediately
+- Guardian Link and VC creation are queued (may take seconds)
+- Images are moved asynchronously
+- Spring sync happens after image move completes
+- You can check job status using job IDs (if monitoring endpoint exists)
+
+**Required Fields:**
+- All pet data fields (same as prepare-registration)
+- \`signedTx\`: Pet Registration signed transaction (required)
+- \`guard ianLinkSignedTx\`: Guardian Link signed TX (optional but recommended)
+- \`vcSignature\`: VC consent signature (optional but recommended)
+- \`vcMessage\`: Original VC message as JSON string (required if vcSignature provided)
+
+**Validation:**
+- Pet data must match prepare-registration call
+- Nose image must produce same Pet DID
+- Signed transactions must be valid
+- Guardian must still be registered
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Pet registered successfully on blockchain, background jobs queued',
+    schema: {
+      example: {
+        success: true,
+        petDID: 'did:ethr:besu:0x1234567890abcdef1234567890abcdef12345678',
+        txHash: '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
+        blockNumber: 12345,
+        message: 'Pet registered successfully! Background jobs queued.',
+        jobs: {
+          guardianLink: 'job-abc123-def456',
+          vc: 'job-def456-ghi789',
+          imageMove: 'job-ghi789-jkl012'
+        },
+        note: 'Images will be moved to permanent storage, then Spring sync will be triggered automatically.'
+      }
+    }
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request - Invalid data, Pet DID mismatch, guardian not registered, or blockchain contract revert',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or expired token',
+  })
+  @ApiResponse({
+    status: 503,
+    description: 'Service Unavailable - Retryable blockchain error (nonce conflict, timeout, etc.)',
+    schema: {
+      example: {
+        success: false,
+        error: 'Pet registration failed',
+        errorCode: 'NONCE_TOO_LOW',
+        retryable: true,
+        txHash: null,
+        blockNumber: null,
+        details: { message: 'Nonce too low. Current nonce is 5, transaction nonce is 3.' }
+      }
+    }
+  })
   async registerPet(
     @Req() req: Request,
     @Body() dto: CreatePetDto,
-    @UploadedFile() noseImage?: Express.Multer.File
   ) {
     const guardianAddress = req.user?.address;
 
@@ -214,28 +612,34 @@ export class PetController {
       };
     }
 
-    // 2. 비문 벡터 재추출 (검증용)
-    if (!noseImage) {
+    // 2. 비문 이미지 확인
+    if (!dto.noseImage) {
       throw new BadRequestException('비문 이미지가 필요합니다.');
     }
 
-    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png'];
-    if (!allowedMimeTypes.includes(noseImage.mimetype)) {
-      throw new BadRequestException('Invalid file type. Only JPEG and PNG are allowed');
+    // 3. S3 temp 폴더에서 비문 이미지 가져오기
+    let noseImageBuffer: Buffer;
+    try {
+      noseImageBuffer = await this.commonService.getFileFromTemp(dto.noseImage);
+    } catch (error) {
+      console.error('S3에서 비문 이미지 가져오기 실패:', error);
+      throw new BadRequestException('비문 이미지를 찾을 수 없습니다.');
     }
 
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (noseImage.size > maxSize) {
-      throw new BadRequestException('File size exceeds 10MB limit');
+    // 4. 파일명에서 이미지 포맷 추출
+    const fileExtension = dto.noseImage.split('.').pop()?.toLowerCase();
+    const imageFormat = fileExtension === 'jpg' ? 'jpeg' : fileExtension;
+
+    if (!['jpeg', 'png'].includes(imageFormat)) {
+      throw new BadRequestException('Invalid file type. Only JPEG and PNG are allowed');
     }
 
     let featureVector: number[];
     let featureVectorHash: string;
 
     try {
-      const imageFormat = noseImage.mimetype.split('/')[1];
       const mlResult = await this.noseEmbedderService.extractNoseVector(
-        noseImage.buffer,
+        noseImageBuffer,
         imageFormat
       );
 
@@ -307,7 +711,21 @@ export class PetController {
       images: dto.images
     };
 
-    // 8. Guardian Link 큐 등록
+    // 8. 이미지 이동 큐 등록 (완료 후 자동으로 Spring 동기화 트리거)
+    const profileImageFileNames = dto.images && dto.images.trim()
+      ? dto.images.split(',').map(name => name.trim()).filter(name => name)
+      : [];
+
+    const imageMoveJobId = await this.springService.queuePetImageMove(
+      petDID,
+      dto.noseImage,
+      profileImageFileNames,
+      guardianAddress,
+      petData
+    );
+    console.log(`✅ Queued image move - Job ID: ${imageMoveJobId}`);
+
+    // 9. Guardian Link 큐 등록
     let guardianLinkJobId = null;
     if (dto.guardianLinkSignedTx) {
       guardianLinkJobId = await this.blockchainService.queueGuardianLinkWithSignature(
@@ -320,7 +738,7 @@ export class PetController {
       console.log(`⚠️ No Guardian Link signature - skipping Guardian Link`);
     }
 
-    // 9. VC 생성 큐 등록
+    // 10. VC 생성 큐 등록
     let vcJobId = null;
     if (dto.vcSignature && dto.vcMessage) {
       // FormData로 전송된 vcMessage는 문자열이므로 파싱 필요
@@ -347,14 +765,6 @@ export class PetController {
       console.log(`⚠️ No VC signature - Pet registered without VC`);
     }
 
-    // 10. Spring 서버 동기화 큐 등록
-    const springJobId = await this.springService.queuePetRegistration(
-      guardianAddress,
-      petDID,
-      petData
-    );
-    console.log(`✅ Queued Spring sync - Job ID: ${springJobId}`);
-
     return {
       success: true,
       petDID,
@@ -364,8 +774,9 @@ export class PetController {
       jobs: {
         guardianLink: guardianLinkJobId || 'not_submitted',
         vc: vcJobId || 'not_submitted',
-        spring: springJobId,
+        imageMove: imageMoveJobId,
       },
+      note: 'Images will be moved to permanent storage, then Spring sync will be triggered automatically.',
     };
   }
 
@@ -374,7 +785,145 @@ export class PetController {
    */
   @Post('prepare-transfer/:petDID')
   @UseGuards(DIDAuthGuard)
-  @ApiOperation({ summary: '펫 소유권 이전을 위한 서명 데이터 준비' })
+  @ApiOperation({
+    summary: 'Step 1: Prepare Pet Ownership Transfer - Generate VC Signing Data',
+    description: `
+**Initiate pet ownership transfer by preparing signing data for new guardian**
+
+This is the first step of the pet ownership transfer (adoption) process. Only the current pet controller (owner) can initiate a transfer.
+
+**Complete Ownership Transfer Flow:**
+\`\`\`
+Step 1: This endpoint - Current guardian prepares VC signing data
+Step 2: New guardian signs message off-chain (client-side)
+Step 3: POST /pet/verify-transfer/:petDID - New guardian uploads nose print for biometric verification
+Step 4: POST /pet/accept-transfer/:petDID/:adoptionId - New guardian submits signature + verification proof → Blockchain execution
+\`\`\`
+
+**What This Endpoint Does:**
+1. Verifies Pet DID exists on blockchain
+2. Verifies caller is current controller (owner) of the pet
+3. Fetches pet's biometric data (feature vector hash) from storage
+4. Prepares VC transfer signing message for new guardian to sign
+5. Returns signing data with message and messageHash
+
+**Authorization:**
+- Only current pet controller can call this endpoint
+- Caller must provide valid JWT access token
+- Pet DID must exist on blockchain
+
+**Request Body:**
+\`\`\`javascript
+{
+  newGuardianAddress: "0x1234567890123456789012345678901234567890",  // New owner address
+  petData: {
+    petName: "Max",
+    breed: "GOLDEN_RETRIEVER",
+    old: 3,
+    gender: "MALE",
+    weight: 25.5,
+    color: "황금색",
+    feature: "활발함",
+    neutral: true,
+    specifics: "dog"
+  }
+}
+\`\`\`
+
+**Response - VC Signing Data:**
+\`\`\`javascript
+{
+  success: true,
+  message: {
+    vc: {
+      vcType: "GuardianPetOwnershipTransferVC",
+      credentialSubject: {
+        previousGuardian: "0xe9ebc691ccfb15cb4bf31af83c624b7020f0d2c0",  // Current owner
+        guardian: "0x1234567890123456789012345678901234567890",  // New owner
+        petDID: "did:ethr:besu:0xabcdef...",
+        biometricHash: "0x...",
+        petData: { ... }
+      },
+      issuedAt: "2025-10-25T12:00:00Z",
+      nonce: "random-string"
+    }
+  },
+  messageHash: "0x...",  // keccak256 of message for signing
+  nextStep: "New guardian must sign and call POST /pet/accept-transfer/:petDID"
+}
+\`\`\`
+
+**Next Steps After Receiving Response:**
+\`\`\`javascript
+// 1. New guardian receives message and messageHash
+// 2. New guardian signs messageHash with their wallet
+const wallet = new ethers.Wallet(newGuardianPrivateKey);
+const signature = await wallet.signMessage(ethers.getBytes(response.messageHash));
+
+// 3. New guardian uploads nose print for biometric verification
+// See POST /pet/verify-transfer/:petDID
+
+// 4. New guardian submits signature + verification proof
+// See POST /pet/accept-transfer/:petDID/:adoptionId
+\`\`\`
+
+**Use Cases:**
+- Pet adoption: Transfer ownership to adopter after successful adoption
+- Guardian change: Transfer to family member or friend
+- Rescue/rehoming: Transfer to new guardian through authorized channels
+
+**Important Notes:**
+- This endpoint does NOT execute blockchain transactions
+- It only prepares signing data for the new guardian
+- Actual transfer happens in Step 4 (accept-transfer)
+- Biometric verification (Step 3) is required before acceptance
+- Previous guardian VC will be invalidated upon successful transfer
+- New guardian VC will be created in background job
+
+**Error Cases:**
+- Pet DID not found → 400 Bad Request
+- Caller is not current controller → 400 Bad Request
+- Biometric data not found → 400 Bad Request
+- Invalid token → 401 Unauthorized
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'VC signing data prepared successfully',
+    schema: {
+      example: {
+        success: true,
+        message: {
+          vc: {
+            vcType: 'GuardianPetOwnershipTransferVC',
+            credentialSubject: {
+              previousGuardian: '0xe9ebc691ccfb15cb4bf31af83c624b7020f0d2c0',
+              guardian: '0x1234567890123456789012345678901234567890',
+              petDID: 'did:ethr:besu:0xabcdef...',
+              biometricHash: '0x...',
+              petData: {
+                petName: 'Max',
+                breed: 'GOLDEN_RETRIEVER',
+                old: 3
+              }
+            },
+            issuedAt: '2025-10-25T12:00:00Z',
+            nonce: 'abc123'
+          }
+        },
+        messageHash: '0x1234567890abcdef...',
+        nextStep: 'New guardian must sign and call POST /pet/accept-transfer/:petDID'
+      }
+    }
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request - Pet DID not found, caller not controller, or biometric data missing'
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or expired token'
+  })
   async prepareTransfer(
     @Param('petDID') petDID: string,
     @Req() req: Request,
@@ -423,7 +972,200 @@ export class PetController {
    */
   @Post('verify-transfer/:petDID')
   @UseGuards(DIDAuthGuard)
-  @ApiOperation({ summary: '소유권 이전 시 새 보호자 비문 검증' })
+  @ApiOperation({
+    summary: 'Step 3: Verify New Guardian Biometric - Upload Nose Print for Matching',
+    description: `
+**Verify new guardian has physical custody of pet through biometric nose print matching**
+
+This is the critical biometric verification step in ownership transfer. The new guardian must upload a nose print photo of the pet to prove they have physical custody.
+
+**Complete Ownership Transfer Flow:**
+\`\`\`
+Step 1: POST /pet/prepare-transfer/:petDID - Current guardian prepares signing data
+Step 2: New guardian signs message off-chain (client-side)
+Step 3: This endpoint - New guardian uploads nose print for verification
+Step 4: POST /pet/accept-transfer/:petDID/:adoptionId - Complete transfer on blockchain
+\`\`\`
+
+**What This Endpoint Does:**
+1. New guardian uploads nose print image of the pet
+2. Moves image from temp → permanent storage (\`nose-print-photo/{petDID}/\`)
+3. Sends image to ML server for feature vector extraction
+4. Compares new vector with stored pet feature vector (cosine similarity)
+5. Verifies similarity ≥ 50% threshold (configurable, currently 50%)
+6. Records verification on blockchain (background job)
+7. Returns verification proof token (valid for 10 minutes)
+
+**Before Calling This Endpoint:**
+New guardian must upload nose print image to S3 temp folder:
+
+\`\`\`javascript
+// 1. Get presigned URL for nose image
+const response = await fetch('/common', {
+  method: 'POST',
+  headers: { 'Authorization': 'Bearer ' + newGuardianAccessToken }
+});
+const { url: presignedUrl } = await response.json();
+
+// 2. Upload nose image to S3
+await fetch(presignedUrl, {
+  method: 'PUT',
+  body: noseImageFile,
+  headers: { 'Content-Type': 'image/jpeg' }
+});
+
+// 3. Extract filename from URL
+const fileName = new URL(presignedUrl).pathname.split('/').pop();
+
+// 4. Call this endpoint with filename
+const verifyResponse = await fetch(\`/pet/verify-transfer/\${petDID}\`, {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ' + newGuardianAccessToken,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ image: fileName })
+});
+\`\`\`
+
+**Request Body:**
+\`\`\`javascript
+{
+  image: "abc123-def456-ghi789.jpg"  // Filename from S3 temp folder
+}
+\`\`\`
+
+**Response - Successful Verification (≥50% similarity):**
+\`\`\`javascript
+{
+  success: true,
+  similarity: 85,  // Percentage (0-100)
+  message: "비문 검증 성공! 이제 소유권 이전을 완료할 수 있습니다.",
+  verificationProof: {
+    petDID: "did:ethr:besu:0xabcdef...",
+    newGuardian: "0x1234567890123456789012345678901234567890",
+    similarity: 85,
+    verifiedAt: "2025-10-25T12:00:00.000Z",
+    nonce: "xyz789"
+  },
+  proofHash: "0x1234567890abcdef...",  // keccak256 of proof
+  nextStep: "Call POST /pet/accept-transfer/:petDID with signature and this proof"
+}
+\`\`\`
+
+**Response - Failed Verification (<50% similarity):**
+\`\`\`javascript
+{
+  success: false,
+  similarity: 35,
+  message: "비문이 일치하지 않습니다. 소유권 이전을 진행할 수 없습니다.",
+  error: "비문이 일치하지 않습니다. 소유권 이전을 진행할 수 없습니다.",
+  threshold: 50
+}
+\`\`\`
+
+**Biometric Verification Details:**
+
+**ML Comparison Process:**
+\`\`\`
+1. Download new nose image from S3: nose-print-photo/{petDID}/{filename}
+2. ML Server extracts feature vector from new image (512-dim array)
+3. ML Server loads stored pet feature vector from S3
+4. Calculate cosine similarity: similarity = cos(newVector, storedVector)
+5. Convert to percentage: similarityPercent = similarity * 100
+6. Compare against threshold (50%)
+\`\`\`
+
+**Similarity Threshold:**
+- **50%+**: Verification success → Can proceed to accept-transfer
+- **<50%**: Verification failed → Cannot proceed (potential fraud/wrong pet)
+
+**Verification Proof:**
+- Generated upon successful verification
+- Contains: petDID, newGuardian address, similarity score, timestamp, nonce
+- **Valid for 10 minutes only** (expires after that)
+- Must be submitted with accept-transfer request
+- Hashed with keccak256 for integrity verification
+
+**Blockchain Recording (Background Job):**
+After successful verification, a background job records the verification event on blockchain:
+- Purpose code: 2 (ownership_transfer)
+- Similarity score: 90 (hardcoded for privacy - actual similarity not revealed on-chain)
+- Verifier: New guardian address
+- Async processing via BullMQ
+
+**Security Features:**
+- Only new guardian (JWT token holder) can verify their own transfer
+- Image is permanently stored (cannot be reused for fraud)
+- Proof expires in 10 minutes (prevents replay attacks)
+- Blockchain record creates audit trail
+- ML server comparison is deterministic and tamper-proof
+
+**Use Cases:**
+- Pet adoption: Adopter proves physical custody before accepting ownership
+- Fraud prevention: Ensures person accepting ownership has actual pet
+- Audit trail: On-chain verification record for disputes
+
+**Important Notes:**
+- This endpoint can be called multiple times (e.g., if first photo unclear)
+- Each call generates new verification proof
+- Only the latest proof is valid for accept-transfer
+- Image is moved to permanent storage (not deleted from temp)
+- ML server must be running and accessible
+- Threshold is currently 50% (may be adjusted based on ML model accuracy)
+
+**Error Cases:**
+- Pet DID not found → 400 Bad Request
+- Image not found in S3 → 400 Bad Request
+- ML server extraction failed → 400 Bad Request
+- ML server comparison failed → 400 Bad Request
+- Similarity below threshold → 200 OK but success: false
+- Invalid token → 401 Unauthorized
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Biometric verification completed (check success field for result)',
+    schema: {
+      oneOf: [
+        {
+          description: 'Verification succeeded (≥50% similarity)',
+          example: {
+            success: true,
+            similarity: 85,
+            message: '비문 검증 성공! 이제 소유권 이전을 완료할 수 있습니다.',
+            verificationProof: {
+              petDID: 'did:ethr:besu:0xabcdef...',
+              newGuardian: '0x1234567890123456789012345678901234567890',
+              similarity: 85,
+              verifiedAt: '2025-10-25T12:00:00.000Z',
+              nonce: 'xyz789'
+            },
+            proofHash: '0x1234567890abcdef...',
+            nextStep: 'Call POST /pet/accept-transfer/:petDID with signature and this proof'
+          }
+        },
+        {
+          description: 'Verification failed (<50% similarity)',
+          example: {
+            success: false,
+            similarity: 35,
+            message: '비문이 일치하지 않습니다. 소유권 이전을 진행할 수 없습니다.',
+            error: '비문이 일치하지 않습니다. 소유권 이전을 진행할 수 없습니다.',
+            threshold: 50
+          }
+        }
+      ]
+    }
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request - Pet DID not found, image not found in S3, or ML server failed'
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or expired token'
+  })
   async verifyTransfer(
     @Param('petDID') petDID: string,
     @Req() req: Request,
@@ -528,7 +1270,292 @@ export class PetController {
    */
   @Post('accept-transfer/:petDID/:adoptionId')
   @UseGuards(DIDAuthGuard)
-  @ApiOperation({ summary: '펫 소유권 이전 수락 (새 보호자)' })
+  @ApiOperation({
+    summary: 'Step 4: Accept Pet Ownership Transfer - Execute Blockchain Transaction',
+    description: `
+**Complete pet ownership transfer by executing blockchain controller change**
+
+This is the final and most critical step of ownership transfer. The new guardian submits their signature and biometric verification proof to execute the on-chain controller change.
+
+**Complete Ownership Transfer Flow:**
+\`\`\`
+Step 1: POST /pet/prepare-transfer/:petDID - Current guardian prepares signing data
+Step 2: New guardian signs message off-chain (client-side)
+Step 3: POST /pet/verify-transfer/:petDID - New guardian uploads nose print (≥50% match)
+Step 4: This endpoint - Execute blockchain TX + background VC processing
+\`\`\`
+
+**What This Endpoint Does:**
+
+**Immediate Actions (Blocking):**
+1. Validates new guardian signature on VC transfer message
+2. Validates biometric verification proof (must be <10 minutes old)
+3. **Executes PetDIDRegistry.changeController() on blockchain** (blocks until confirmed)
+4. Returns transaction hash and block number
+
+**Background Jobs (Non-blocking - BullMQ):**
+5. Invalidates previous guardian's VC (marks as revoked)
+6. Creates new VC for new guardian with pet ownership credentials
+7. Updates Spring backend adoption record status
+
+**Transaction Execution Flow:**
+\`\`\`
+1. Validate signature + verification proof (immediate) ✅
+   ↓
+2. Execute changeController TX (immediate) ✅ Blocks until confirmed
+   ↓
+3. Queue VC transfer job (background) → Invalidate old + Create new VC
+4. Queue Spring sync job (background) → Update adoption status
+\`\`\`
+
+**Request Parameters:**
+- \`:petDID\`: Pet DID identifier (e.g., "did:ethr:besu:0xabcdef...")
+- \`:adoptionId\`: Adoption record ID from Spring backend
+
+**Request Body:**
+\`\`\`javascript
+{
+  signature: "0xabcdef...",  // New guardian signature from Step 2
+  message: {
+    vc: {
+      vcType: "GuardianPetOwnershipTransferVC",
+      credentialSubject: {
+        previousGuardian: "0xe9ebc691ccfb15cb4bf31af83c624b7020f0d2c0",
+        guardian: "0x1234567890123456789012345678901234567890",  // Must match caller
+        petDID: "did:ethr:besu:0xabcdef...",
+        biometricHash: "0x...",
+        petData: { ... }
+      },
+      issuedAt: "2025-10-25T12:00:00Z",
+      nonce: "abc123"
+    }
+  },
+  petData: {
+    petName: "Max",
+    breed: "GOLDEN_RETRIEVER",
+    old: 3,
+    gender: "MALE",
+    weight: 25.5,
+    color: "황금색",
+    feature: "활발함",
+    neutral: true,
+    specifics: "dog"
+  },
+  verificationProof: {
+    petDID: "did:ethr:besu:0xabcdef...",
+    newGuardian: "0x1234567890123456789012345678901234567890",
+    similarity: 85,
+    verifiedAt: "2025-10-25T12:00:00.000Z",
+    nonce: "xyz789"
+  },
+  signedTx: "0xf86c..."  // Signed changeController transaction
+}
+\`\`\`
+
+**Complete Flow Example:**
+\`\`\`javascript
+// Prerequisites: Steps 1-3 completed
+// Step 1: Current guardian called prepare-transfer
+// Step 2: New guardian signed message
+// Step 3: New guardian verified biometric (got verificationProof)
+
+// Step 4: New guardian accepts transfer
+const acceptData = {
+  signature: newGuardianSignature,  // From Step 2
+  message: vcTransferMessage,       // From Step 1
+  petData: {
+    petName: 'Max',
+    breed: 'GOLDEN_RETRIEVER',
+    old: 3,
+    gender: 'MALE',
+    weight: 25.5,
+    color: '황금색',
+    feature: '활발함',
+    neutral: true,
+    specifics: 'dog'
+  },
+  verificationProof: verificationProofFromStep3,  // From Step 3
+  signedTx: changeControllerSignedTx  // Signed transaction
+};
+
+const response = await fetch(\`/pet/accept-transfer/\${petDID}/\${adoptionId}\`, {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ' + newGuardianAccessToken,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify(acceptData)
+});
+
+const result = await response.json();
+console.log('Transfer Complete!');
+console.log('TX Hash:', result.txHash);
+console.log('Block Number:', result.blockNumber);
+console.log('Similarity:', result.similarity);
+console.log('VC Job ID:', result.vcTransferJobId);
+\`\`\`
+
+**Response - Immediate Results:**
+\`\`\`javascript
+{
+  success: true,
+  txHash: "0xabcdef1234567890...",  // PetDIDRegistry.changeController TX
+  blockNumber: 12345,
+  similarity: 85,  // From verification proof
+  vcTransferJobId: "job-uuid-123",  // BullMQ job ID
+  message: "Pet ownership transferred successfully on blockchain. VC processing queued."
+}
+\`\`\`
+
+**Blockchain Controller Change:**
+\`\`\`solidity
+// PetDIDRegistry smart contract
+function changeController(string memory _did, address _newController) public {
+  require(msg.sender == didToController[_did], "Only current controller");
+  address oldController = didToController[_did];
+  didToController[_did] = _newController;
+  emit ControllerChanged(_did, oldController, _newController);
+}
+\`\`\`
+
+**Background Jobs Details:**
+
+**1. VC Transfer Job (BullMQ):**
+- Invalidates previous guardian's VC (marks as revoked in database)
+- Creates new VC for new guardian:
+  - VC Type: GuardianPetOwnershipTransferVC
+  - Credent ial Subject: { previousGuardian, guardian, petDID, biometricHash, petData }
+  - New guardian signature included as proof of consent
+- Stores new VC in VC service database
+
+**2. Spring Backend Sync Job (BullMQ):**
+- Updates adoption record status in Spring backend
+- Marks adoption as "completed" in MySQL/PostgreSQL
+- Updates pet owner information
+- Triggers notification to previous guardian (optional)
+
+**Validation Checks:**
+
+**1. Signature Validation:**
+- Message guardian must match caller's address (new guardian)
+- Signature must be valid ECDSA signature on message
+
+**2. Verification Proof Validation:**
+- Proof newGuardian must match caller's address
+- Proof petDID must match URL parameter
+- Proof must be less than 10 minutes old (timestamp check)
+- Proof must have valid structure
+
+**3. Blockchain Transaction:**
+- SignedTx must be valid signed transaction
+- Transaction must call changeController() function
+- Current controller is NOT updated in GuardianRegistry (requires separate signatures)
+
+**GuardianRegistry Sync Limitation:**
+The GuardianRegistry contract (which maintains guardian → pets mapping) is NOT automatically synced because:
+- linkPet() and unlinkPet() require msg.sender to be guardian
+- Background jobs cannot use user's private key for signing
+- Solution: PetDIDRegistry controller is the single source of truth
+- GuardianRegistry is auxiliary mapping only
+
+**Error Handling - Validation Failures:**
+\`\`\`javascript
+{
+  success: false,
+  error: "Not the designated new guardian"  // or other error messages
+}
+\`\`\`
+
+**Error Handling - Blockchain TX Fails:**
+\`\`\`javascript
+{
+  success: false,
+  error: "Pet transfer failed",
+  errorCode: "NONCE_TOO_LOW",  // or INSUFFICIENT_FUNDS, EXECUTION_REVERTED, etc.
+  retryable: true,
+  txHash: null,
+  blockNumber: null,
+  details: { ... }
+}
+\`\`\`
+
+**Error Codes:**
+- \`NONCE_TOO_LOW\`: Transaction nonce conflict (retryable)
+- \`INSUFFICIENT_FUNDS\`: Not enough gas (not retryable)
+- \`EXECUTION_REVERTED\`: Contract rejected (caller not current controller, or pet DID not found)
+- \`TIMEOUT\`: Blockchain timeout (retryable)
+
+**HTTP Status Codes:**
+- 200: Success
+- 400: Bad Request (invalid signature, expired proof, guardian mismatch)
+- 401: Unauthorized (invalid token)
+- 503: Service Unavailable (retryable blockchain errors)
+
+**Security Features:**
+- Only new guardian (message recipient) can accept transfer
+- Biometric verification proof required (proves physical custody)
+- Proof expires in 10 minutes (prevents replay attacks)
+- Signature verification prevents impersonation
+- Blockchain execution is atomic (either succeeds fully or fails)
+
+**Important Notes:**
+- Only blockchain controller change is immediate (blocks response)
+- VC processing is async (may take seconds to complete)
+- Spring sync is async (adoption status updated in background)
+- GuardianRegistry is NOT synced automatically
+- Previous guardian loses blockchain controller rights immediately
+- New guardian can now control pet DID and transfer again
+
+**Required Fields:**
+- \`signature\`: New guardian signature (required)
+- \`message\`: VC transfer message (required)
+- \`petData\`: Pet data for new VC (required)
+- \`verificationProof\`: Biometric proof from Step 3 (required, <10 min old)
+- \`signedTx\`: Signed changeController transaction (required in production)
+
+**Use Cases:**
+- Pet adoption completion: Adopter accepts ownership after successful application
+- Guardian change: Family member accepts pet responsibility
+- Rescue transfer: New rescue organization accepts custody
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Pet ownership transferred successfully on blockchain, VC processing queued',
+    schema: {
+      example: {
+        success: true,
+        txHash: '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
+        blockNumber: 12345,
+        similarity: 85,
+        vcTransferJobId: 'job-abc123-def456-ghi789',
+        message: 'Pet ownership transferred successfully on blockchain. VC processing queued.'
+      }
+    }
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request - Invalid signature, expired verification proof, guardian mismatch, or blockchain contract revert',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or expired token',
+  })
+  @ApiResponse({
+    status: 503,
+    description: 'Service Unavailable - Retryable blockchain error (nonce conflict, timeout, etc.)',
+    schema: {
+      example: {
+        success: false,
+        error: 'Pet transfer failed',
+        errorCode: 'NONCE_TOO_LOW',
+        retryable: true,
+        txHash: null,
+        blockNumber: null,
+        details: { message: 'Nonce too low. Current nonce is 5, transaction nonce is 3.' }
+      }
+    }
+  })
   async acceptTransfer(
     @Param('petDID') petDID: string,
     @Param('adoptionId') adoptionId: number,
@@ -629,7 +1656,290 @@ export class PetController {
    * 펫 소유권 이전 히스토리 조회 (uses blockchain-indexer service)
    */
   @Get('history/:petDID')
-  @ApiOperation({ summary: '펫 소유권 이전 히스토리 (입양 기록) 조회' })
+  @ApiOperation({
+    summary: 'Get Pet Ownership Transfer History - Adoption Records',
+    description: `
+**Retrieve complete ownership transfer history for a pet from blockchain**
+
+This endpoint fetches all historical controller changes (ownership transfers) for a specific pet DID from the blockchain indexer service, with fallback to direct blockchain querying.
+
+**What This Endpoint Does:**
+1. Queries blockchain-indexer service (gRPC) for pet transfer history
+2. If indexer unavailable, falls back to direct blockchain RPC calls
+3. Returns chronological list of all ownership transfers
+4. Includes transaction hashes, block numbers, and timestamps
+5. Shows current controller (current owner) and total transfer count
+
+**Use Cases:**
+- Pet adoption history: View complete adoption timeline
+- Ownership verification: Verify current owner from blockchain
+- Audit trail: Track all ownership changes for dispute resolution
+- Provenance tracking: Full pet ownership lineage
+
+**Data Sources:**
+
+**Primary: Blockchain Indexer (Preferred):**
+- Fast indexed database queries (PostgreSQL/MySQL)
+- Supports large history (100+ transfers)
+- Includes human-readable timestamps
+- Response time: <100ms
+
+**Fallback: Direct Blockchain RPC:**
+- Used when indexer is offline or unreachable
+- Queries blockchain event logs directly
+- **Limited by RPC range limits** (typically 10,000 blocks)
+- Response time: 1-5 seconds
+- May fail for very old pets with RPC range exceeded
+
+**Fallback-Limited Mode:**
+If both indexer and full blockchain query fail due to RPC limits:
+- Returns only current controller (from PetDIDRegistry state)
+- Returns pet creation date
+- History array is empty
+- Warning message included
+
+**Request Parameters:**
+- \`:petDID\`: Pet DID identifier (e.g., "did:ethr:besu:0xabcdef...")
+
+**Response - Successful Query (Indexer):**
+\`\`\`javascript
+{
+  success: true,
+  petDID: "did:ethr:besu:0xabcdef...",
+  currentController: "0x1234567890123456789012345678901234567890",
+  totalTransfers: 3,
+  history: [
+    {
+      previousController: "0x0000000000000000000000000000000000000000",  // Initial registration
+      newController: "0xe9ebc691ccfb15cb4bf31af83c624b7020f0d2c0",   // First owner
+      blockNumber: 10000,
+      transactionHash: "0xabc...",
+      timestamp: 1698172800,  // Unix timestamp
+      timestampISO: "2024-10-25T12:00:00.000Z",
+      transferIndex: 0
+    },
+    {
+      previousController: "0xe9ebc691ccfb15cb4bf31af83c624b7020f0d2c0",
+      newController: "0x1234567890123456789012345678901234567890",   // Transferred to new owner
+      blockNumber: 12345,
+      transactionHash: "0xdef...",
+      timestamp: 1698259200,
+      timestampISO: "2024-10-26T12:00:00.000Z",
+      transferIndex: 1
+    },
+    {
+      previousController: "0x1234567890123456789012345678901234567890",
+      newController: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",   // Latest transfer
+      blockNumber: 15000,
+      transactionHash: "0xghi...",
+      timestamp: 1698345600,
+      timestampISO: "2024-10-27T12:00:00.000Z",
+      transferIndex: 2
+    }
+  ],
+  source: "blockchain-indexer"  // or "blockchain-fallback" or "blockchain-fallback-limited"
+}
+\`\`\`
+
+**Response - Blockchain Fallback (RPC Limited):**
+\`\`\`javascript
+{
+  success: true,
+  petDID: "did:ethr:besu:0xabcdef...",
+  currentController: "0x1234567890123456789012345678901234567890",
+  totalTransfers: null,  // Unknown
+  history: [],  // Empty due to RPC range limit
+  warning: "Full history unavailable - indexer offline and RPC range limit exceeded",
+  message: "Only current controller is available.",
+  createdDate: "2024-10-25T12:00:00.000Z",  // Pet registration date
+  source: "blockchain-fallback-limited"
+}
+\`\`\`
+
+**Response - Error:**
+\`\`\`javascript
+{
+  success: false,
+  error: "Failed to fetch pet history",
+  message: "Pet DID not found on blockchain"
+}
+\`\`\`
+
+**Blockchain Event Structure:**
+
+**PetDIDRegistry Contract Event:**
+\`\`\`solidity
+event ControllerChanged(
+  string indexed did,
+  address indexed previousController,
+  address indexed newController
+);
+\`\`\`
+
+**Initial Registration:**
+- previousController: 0x0000000000000000000000000000000000000000 (zero address)
+- newController: First guardian address
+- Triggered by: registerPetDID() function
+
+**Ownership Transfer:**
+- previousController: Current owner address
+- newController: New owner address
+- Triggered by: changeController() function
+
+**History Interpretation:**
+
+**Transfer Index 0 (Initial Registration):**
+\`\`\`javascript
+{
+  previousController: "0x0000000000000000000000000000000000000000",
+  newController: "0xe9eb...",  // First owner
+  transferIndex: 0
+}
+// Interpretation: Pet was registered by guardian 0xe9eb...
+\`\`\`
+
+**Transfer Index 1+ (Ownership Transfers):**
+\`\`\`javascript
+{
+  previousController: "0xe9eb...",  // Previous owner
+  newController: "0x1234...",  // New owner
+  transferIndex: 1
+}
+// Interpretation: Pet was transferred from 0xe9eb... to 0x1234...
+\`\`\`
+
+**Current Controller Determination:**
+- If history exists: Last entry's newController
+- If history empty: Query PetDIDRegistry.getDIDDocument(petDID).controller
+
+**Query Parameters (Indexer):**
+- \`petDID\`: Pet DID to query
+- \`limit\`: 100 (maximum events to return)
+- \`offset\`: 0 (pagination offset)
+
+**Performance:**
+- Indexer query: ~50-100ms
+- Blockchain fallback: ~1-5 seconds (depends on history length)
+- Fallback-limited mode: ~100ms (single state query)
+
+**Fallback Behavior:**
+\`\`\`
+1. Try indexer service (gRPC)
+   ↓ (if fails)
+2. Try blockchain RPC (event log query)
+   ↓ (if RPC range limit exceeded)
+3. Return limited data (current controller only + warning)
+\`\`\`
+
+**Important Notes:**
+- History is immutable (blockchain data cannot be altered)
+- Indexer provides faster queries for long histories
+- Blockchain fallback ensures availability even if indexer is down
+- RPC range limits may prevent full history retrieval for very old pets
+- Current controller is always available (from blockchain state)
+- Transfer count includes initial registration (index 0)
+
+**Example Use Cases:**
+
+**1. Verify Current Owner:**
+\`\`\`javascript
+const response = await fetch(\`/pet/history/\${petDID}\`);
+const { currentController } = await response.json();
+console.log(\`Current owner: \${currentController}\`);
+\`\`\`
+
+**2. Show Adoption Timeline:**
+\`\`\`javascript
+const response = await fetch(\`/pet/history/\${petDID}\`);
+const { history } = await response.json();
+
+history.forEach(transfer => {
+  if (transfer.transferIndex === 0) {
+    console.log(\`Registered by: \${transfer.newController} at \${transfer.timestampISO}\`);
+  } else {
+    console.log(\`Transferred from \${transfer.previousController} to \${transfer.newController} at \${transfer.timestampISO}\`);
+  }
+});
+\`\`\`
+
+**3. Audit Ownership Changes:**
+\`\`\`javascript
+const response = await fetch(\`/pet/history/\${petDID}\`);
+const { totalTransfers, history } = await response.json();
+console.log(\`Total ownership changes: \${totalTransfers}\`);
+console.log(\`Transaction hashes: \${history.map(h => h.transactionHash).join(', ')}\`);
+\`\`\`
+
+**Error Cases:**
+- Pet DID not found → 200 OK but success: false
+- Indexer offline + RPC limit → 200 OK with warning and limited data
+- Invalid petDID format → 400 Bad Request (validation)
+- Network error → 500 Internal Server Error
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Pet transfer history retrieved successfully (check source field for data source)',
+    schema: {
+      oneOf: [
+        {
+          description: 'Full history from indexer or blockchain',
+          example: {
+            success: true,
+            petDID: 'did:ethr:besu:0xabcdef1234567890abcdef1234567890abcdef12',
+            currentController: '0x1234567890123456789012345678901234567890',
+            totalTransfers: 2,
+            history: [
+              {
+                previousController: '0x0000000000000000000000000000000000000000',
+                newController: '0xe9ebc691ccfb15cb4bf31af83c624b7020f0d2c0',
+                blockNumber: 10000,
+                transactionHash: '0xabc123...',
+                timestamp: 1698172800,
+                timestampISO: '2024-10-25T12:00:00.000Z',
+                transferIndex: 0
+              },
+              {
+                previousController: '0xe9ebc691ccfb15cb4bf31af83c624b7020f0d2c0',
+                newController: '0x1234567890123456789012345678901234567890',
+                blockNumber: 12345,
+                transactionHash: '0xdef456...',
+                timestamp: 1698259200,
+                timestampISO: '2024-10-26T12:00:00.000Z',
+                transferIndex: 1
+              }
+            ],
+            source: 'blockchain-indexer'
+          }
+        },
+        {
+          description: 'Limited data when indexer offline and RPC range exceeded',
+          example: {
+            success: true,
+            petDID: 'did:ethr:besu:0xabcdef1234567890abcdef1234567890abcdef12',
+            currentController: '0x1234567890123456789012345678901234567890',
+            totalTransfers: null,
+            history: [],
+            warning: 'Full history unavailable - indexer offline and RPC range limit exceeded',
+            message: 'Only current controller is available.',
+            createdDate: '2024-10-25T12:00:00.000Z',
+            source: 'blockchain-fallback-limited'
+          }
+        }
+      ]
+    }
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Error retrieving pet history',
+    schema: {
+      example: {
+        success: false,
+        error: 'Failed to fetch pet history',
+        message: 'Pet DID not found on blockchain'
+      }
+    }
+  })
   async getPetControllerHistory(@Param('petDID') petDID: string) {
     try {
       // grpc를 통한 블록체인 히스토리 쿼리
