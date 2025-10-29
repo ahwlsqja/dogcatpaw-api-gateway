@@ -214,7 +214,7 @@ export class VcProcessor {
    */
   @Process('process-vc-transfer')
   async handleVCTransfer(job: Job<VCTransferJob>) {
-    const { petDID, newGuardian, previousGuardian, signature, message, petData } = job.data;
+    const { petDID, newGuardian, previousGuardian, signature, message, vcSignedData, petData } = job.data;
 
     try {
       const startTime = Date.now();
@@ -249,6 +249,7 @@ export class VcProcessor {
         newGuardian,
         signature,
         message,
+        vcSignedData,
         petDID,
         petData,
       });

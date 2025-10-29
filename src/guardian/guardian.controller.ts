@@ -10,6 +10,7 @@ import { SpringService } from 'src/spring/spring.service';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { ethers } from 'ethers';
 import { Role } from 'src/common/enums/role.enum';
+import { error } from 'console';
 
 @ApiTags('Guardian')
 @ApiBearerAuth()
@@ -298,6 +299,8 @@ const personalDataHash = ethers.keccak256(
     @Body() dto: CreateGuardianDto
   ) {
     const guardianAddress = req.user?.address;
+    
+    console.log(dto)
 
     // 1. VC Service에 Auth 확인 (이메일 인증 여부 확인)
     let authCheck;
@@ -321,7 +324,8 @@ const personalDataHash = ethers.keccak256(
       };
     }
 
-    // 3. 블록체인에 이미 등록되어 있는지 확인
+    try{
+            // 3. 블록체인에 이미 등록되어 있는지 확인
     const isAlreadyRegistered = await this.guardianService.isGuardianRegistered(guardianAddress);
     if (isAlreadyRegistered) {
       return {
@@ -354,6 +358,12 @@ const personalDataHash = ethers.keccak256(
       dto.signedTx
     );
 
+    console.log(txResult)
+
+
+
+
+
     // 5. 트랜잭션 성공 후 즉시 응답 반환 + 백그라운드에서 VC/Spring 동기화
     if (txResult.success) {
       // 🚀 Queue VC sync (fire & forget)
@@ -371,9 +381,12 @@ const personalDataHash = ethers.keccak256(
 
       if (dto.profileUrl && dto.profileUrl.trim()) {
         // Profile image exists - queue image move (will trigger Spring sync after)
+        // Extract filename from path (e.g., "dogcatpaw-backend/temp/file.jpg" -> "file.jpg")
+        const fileName = dto.profileUrl.split('/').pop();
+
         imageMoveJobId = await this.springService.queueGuardianImageMove(
           guardianAddress,
-          dto.profileUrl,
+          fileName,
           {
             email: dto.email,
             phone: dto.phone,
@@ -443,7 +456,13 @@ const personalDataHash = ethers.keccak256(
       }
     }
 
+  
+
     return txResult;
+
+      }catch{
+      console.log(error)
+    }
   }
 
   /**

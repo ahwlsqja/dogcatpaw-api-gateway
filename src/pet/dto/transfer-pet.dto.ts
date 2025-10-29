@@ -47,6 +47,13 @@ export class AcceptTransferDto {
   message: any;
 
   @ApiProperty({
+    description: 'The exact signing data (base64url(header).base64url(payload)) that was signed by new guardian. MUST match prepare-transfer response to ensure signature verification.',
+    example: 'eyJhbGciOiJFUzI1NkstUiIsInR5cCI6IkpXVCJ9.eyJ2YyI6eyJ2Y1R5cGUiOiJHdWFyZGlhblBldE93bmVyc2hpcFRyYW5zZmVyVkMiLCJjcmVkZW50aWFsU3ViamVjdCI6eyJwcmV2aW91c0d1YXJkaWFuIjoiMHhlOWViYzY5MWNjZmIxNWNiNGJmMzFhZjgzYzYyNGI3MDIwZjBkMmMwIiwiZ3VhcmRpYW4iOiIweDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAiLCJwZXRESUQiOiJkaWQ6ZXRocjpiZXN1OjB4YWJjZGVmLi4uIiwiYmlvbWV0cmljSGFzaCI6IjB4Li4uIiwicGV0RGF0YSI6e319LCJpc3N1ZWRBdCI6IjIwMjUtMTAtMjVUMTI6MDA6MDBaIiwibm9uY2UiOiJhYmMxMjMifX0'
+  })
+  @IsString()
+  vcSignedData: string;
+
+  @ApiProperty({
     description: 'Pet data to include in the new VC. Should match current pet profile.',
     type: PetDataDto
   })

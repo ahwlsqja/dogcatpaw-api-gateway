@@ -1,8 +1,8 @@
 /**
- * male,
- * female
+ * Gender enum for user profiles
+ * MALE, FEMALE
  */
 export enum Gender {
-    MALE,
-    FAMALE
+    MALE = 'MALE',
+    FEMALE = 'FEMALE'
 }

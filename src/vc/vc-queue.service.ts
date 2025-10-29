@@ -20,6 +20,7 @@ export class VcQueueService {
     previousGuardian: string,
     signature: string,
     message: any,
+    vcSignedData: string,
     petData: any
   ) {
     const job = await this.vcQueue.add('process-vc-transfer', {
@@ -28,6 +29,7 @@ export class VcQueueService {
       previousGuardian,
       signature,
       message,
+      vcSignedData,
       petData
     }, {
       priority: 2, // Medium priority

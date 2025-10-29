@@ -22,25 +22,27 @@ spec:
         app: dogcatpaw-api-gateway
         version: v1
     spec:
+      imagePullSecrets:
+      - name: ncr-secret
       containers:
       - name: api-gateway
         # TODO: Replace with your actual image registry and tag
         # Example: asia-northeast3-docker.pkg.dev/your-project/dogcatpaw/api-gateway:latest
         # or: your-registry.kr.ncr.ntruss.com/dogcatpaw/api-gateway:latest
-        image: dogcatpaw-api-gateway:latest
+        image: dogcatpaw-registry.kr.ncr.ntruss.com/dogcatpaw-api-gateway:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
           name: http
           protocol: TCP
-
+ 
         # Environment variables from ConfigMap
         envFrom:
         - configMapRef:
             name: dogcatpaw-api-gateway-config
         - secretRef:
             name: dogcatpaw-api-gateway-secret
-
+ 
         # Resource limits and requests
         resources:
           requests:
@@ -49,46 +51,13 @@ spec:
           limits:
             cpu: 500m
             memory: 512Mi
-
-        # Liveness probe - checks if the container is alive
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 3000
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          successThreshold: 1
-          failureThreshold: 3
-
-        # Readiness probe - checks if the container is ready to serve traffic
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 3000
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 3
-          successThreshold: 1
-          failureThreshold: 3
-
-        # Startup probe - gives the app time to start
-        startupProbe:
-          httpGet:
-            path: /health
-            port: 3000
-          initialDelaySeconds: 0
-          periodSeconds: 10
-          timeoutSeconds: 3
-          successThreshold: 1
-          failureThreshold: 30
-
+ 
       # Restart policy
       restartPolicy: Always
-
+ 
       # DNS policy
       dnsPolicy: ClusterFirst
-
+ 
       # Security context (optional, but recommended)
       securityContext:
         runAsNonRoot: false

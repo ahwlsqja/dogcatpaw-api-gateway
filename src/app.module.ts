@@ -22,6 +22,7 @@ import { envVariableKeys } from './common/const/env.const';
 import { AdminModule } from './admin/admin.module';
 import { IndexerModule } from './indexer/indexer.module';
 import { ChatModule } from './chat/chat.module';
+import { FaucetModule } from './faucet/faucet.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { ChatModule } from './chat/chat.module';
     AdminModule,
     IndexerModule,
     ChatModule,
+    FaucetModule,
   ],
   providers: [{
     provide: APP_INTERCEPTOR,

@@ -101,9 +101,9 @@ export class MakeDonationDto {
     description: 'Member ID from Spring backend database (automatically extracted from JWT token, usually not needed in request body).',
     example: 456
   })
-  @IsNumber()
+  @IsString()
   @IsNotEmpty()
-  memberId: number;
+  memberId: string;
 
   @ApiProperty({
     description: 'Bone package item ID representing the donation amount. Get available item IDs from the bone package catalog. Each item ID corresponds to a specific number of bones (e.g., itemId 1 = 10 bones, itemId 2 = 50 bones).',

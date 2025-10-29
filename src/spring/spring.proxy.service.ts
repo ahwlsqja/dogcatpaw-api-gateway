@@ -1,10 +1,17 @@
 // api-gateway/src/spring/spring.proxy.service.ts
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, HttpException } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { ConfigService } from '@nestjs/config';
 import { envVariableKeys } from 'src/common/const/env.const';
 import { CommonService } from 'src/common/common.service';
+import {
+  SpringErrorCode,
+  SpringErrorResponse,
+  parseAxiosError,
+  isRetryableError,
+  SpringErrorMessages,
+} from 'src/common/const/spring-error-codes';
 
 // Import DTOs
 import { VcSyncDto } from './dto/vc-sync.dto';
@@ -47,21 +54,23 @@ export class SpringProxyService {
    * Public으로 변경하여 ChatService에서도 사용 가능
    */
   async proxyToSpring(
-    method: 'get' | 'post' | 'put' | 'delete',
+    method: 'get' | 'post' | 'put' | 'delete' | 'patch',
     endpoint: string,
     data?: any,
     queryParams?: any,
     headers?: any
   ) {
-    console.log(headers)
     try {
       // headers가 문자열이면 그대로 사용, 객체면 authorization에서 지갑 주소 추출 시도
       let walletAddress = headers;
       if (typeof headers === 'object' && headers !== null) {
         // headers 객체에서 authorization 토큰을 통해 지갑 주소 추출 불가능
         // 이 경우 headers는 잘못 전달된 것이므로 undefined 처리
+        this.logger.warn(`[proxyToSpring] Received headers as object, setting walletAddress to undefined. Headers type: ${typeof headers}`);
         walletAddress = undefined;
       }
+
+      this.logger.log(`[proxyToSpring] ${method.toUpperCase()} ${endpoint} | Wallet: ${walletAddress || 'NOT SET'}`);
 
       const config = {
         headers: {
@@ -69,11 +78,17 @@ export class SpringProxyService {
           'X-API-Gateway': 'dogcatpaw',
           'X-Wallet-Address': walletAddress,
         },
-        params: queryParams
+        params: queryParams,
+        timeout: 30000, // 30초 타임아웃
       };
 
-      console.log(config)
-      
+      // Log the actual headers being sent
+      this.logger.log(`[proxyToSpring] Headers to send: ${JSON.stringify(config.headers)}`);
+
+      if (!walletAddress && (method === 'post' || method === 'patch' || method === 'put')) {
+        this.logger.error(`[proxyToSpring] ⚠️  WALLET ADDRESS IS MISSING for ${method.toUpperCase()} ${endpoint}!`);
+      }
+
 
       let response;
       if (method === 'get' || method === 'delete') {
@@ -84,6 +99,7 @@ export class SpringProxyService {
           )
         );
       } else {
+        // post, put, patch
         response = await firstValueFrom(
           this.httpService[method](
             `${this.springBaseUrl}${endpoint}`,
@@ -92,12 +108,35 @@ export class SpringProxyService {
           )
         );
       }
-      console.log(response.data)
 
+      this.logger.log(`[proxyToSpring] ✅ ${method.toUpperCase()} ${endpoint} Success`);
+      console.log(response.data)
       return response.data;
     } catch (error) {
       this.logger.error(`Spring API proxy error [${method.toUpperCase()} ${endpoint}]:`, error.message);
-      throw error;
+
+      // Parse error and classify
+      const springError = parseAxiosError(error, endpoint);
+
+      this.logger.error(
+        `Spring Error: ${springError.errorCode} | ` +
+        `Retryable: ${springError.retryable} | ` +
+        `Status: ${springError.statusCode} | ` +
+        `Message: ${springError.errorMessage}`
+      );
+
+      // Throw HttpException with proper status code for controller to catch
+      const statusCode = springError.statusCode || 500;
+      throw new HttpException(
+        {
+          success: false,
+          errorCode: springError.errorCode,
+          error: springError.errorMessage,
+          retryable: springError.retryable,
+          timestamp: springError.timestamp,
+        },
+        statusCode
+      );
     }
   }
 
@@ -128,7 +167,6 @@ export class SpringProxyService {
 
   // ==================== Pet API ====================
   async getMyPets(headers?: any) {
-    console.log(headers)
     return this.proxyToSpring('get', '/api/pet', undefined, undefined, headers);
   }
 
@@ -156,28 +194,82 @@ export class SpringProxyService {
 
   // 연결 완료
   async createAdoptionPost(data: CreateAdoptionPostDto, headers?: any) {
+    this.logger.log(`[createAdoptionPost] Received data: ${JSON.stringify(data)}`);
+    this.logger.log(`[createAdoptionPost] petId: ${data.petId}, wallet: ${headers}`);
+
     // Move images from temp to adoption folder
     if (data.images && data.images.trim()) {
       const imageFileNames = data.images.split(',').map(name => name.trim()).filter(name => name);
       const movedImageUrls: string[] = [];
 
       for (const imageFileName of imageFileNames) {
+        // Extract just the filename (remove any bucket/temp prefix)
+        const bucketName = this.configService.get<string>('AWS_S3_BUCKET_NAME2');
+        let normalizedFileName = imageFileName;
+
+        if (normalizedFileName.includes(`${bucketName}/`)) {
+          normalizedFileName = normalizedFileName.split(`${bucketName}/`).pop();
+        }
+        if (normalizedFileName.startsWith('temp/')) {
+          normalizedFileName = normalizedFileName.substring(5);
+        }
+        const fileNameOnly = normalizedFileName.split('/').pop();
+
         await this.commonService.saveAdoptionToPermanentStorage(imageFileName);
-        const imageUrl = this.generateS3Url(`adoption/${imageFileName}`);
+        const imageUrl = this.generateS3Url(`adoption/${fileNameOnly}`);
         movedImageUrls.push(imageUrl);
-        this.logger.log(`✅ Adoption image moved: adoption/${imageFileName} -> ${imageUrl}`);
+        this.logger.log(`✅ Adoption image moved: adoption/${fileNameOnly} -> ${imageUrl}`);
       }
 
       // Update data with full S3 URLs
       data.images = movedImageUrls.join(',');
     }
 
-    return this.proxyToSpring('post', '/api/adoption/post', data, undefined, headers);
+    // Spring API expects camelCase, only convert deadLine → deadline
+    const springData: any = { ...data };
+    if (data.deadLine) {
+      springData.deadline = data.deadLine;
+      delete springData.deadLine;
+    }
+
+    return this.proxyToSpring('post', '/api/adoption/post', springData, undefined, headers);
   }
 
   // 펫 이전
   async finalizeAdoption(adoptionId: number, headers?: any) {
-    return this.proxyToSpring('post', `/api/adoption/${adoptionId}/complete`, undefined, { adoptionId }, headers);
+    return this.proxyToSpring('patch', `/api/adoption/${adoptionId}/delegate`, undefined, { adoptionId }, headers);
+  }
+
+  async updateAdoptionPost(adoptionId: number, data: CreateAdoptionPostDto, headers?: any) {
+    // Move images from temp to adoption folder
+    if (data.images && data.images.trim()) {
+      const imageFileNames = data.images.split(',').map(name => name.trim()).filter(name => name);
+      const movedImageUrls: string[] = [];
+
+      for (const imageFileName of imageFileNames) {
+        // Extract just the filename (remove any bucket/temp prefix)
+        const bucketName = this.configService.get<string>('AWS_S3_BUCKET_NAME2');
+        let normalizedFileName = imageFileName;
+
+        if (normalizedFileName.includes(`${bucketName}/`)) {
+          normalizedFileName = normalizedFileName.split(`${bucketName}/`).pop();
+        }
+        if (normalizedFileName.startsWith('temp/')) {
+          normalizedFileName = normalizedFileName.substring(5);
+        }
+        const fileNameOnly = normalizedFileName.split('/').pop();
+
+        await this.commonService.saveAdoptionToPermanentStorage(imageFileName);
+        const imageUrl = this.generateS3Url(`adoption/${fileNameOnly}`);
+        movedImageUrls.push(imageUrl);
+        this.logger.log(`✅ Adoption image moved: adoption/${fileNameOnly} -> ${imageUrl}`);
+      }
+
+      // Update data with full S3 URLs
+      data.images = movedImageUrls.join(',');
+    }
+
+    return this.proxyToSpring('patch', `/api/adoption/${adoptionId}`, data, undefined, headers);
   }
 
   // ==================== Daily Story API ====================
@@ -188,25 +280,42 @@ export class SpringProxyService {
       const movedImageUrls: string[] = [];
 
       for (const imageFileName of imageFileNames) {
+        // Extract just the filename (remove any bucket/temp prefix)
+        const bucketName = this.configService.get<string>('AWS_S3_BUCKET_NAME2');
+        let normalizedFileName = imageFileName;
+
+        if (normalizedFileName.includes(`${bucketName}/`)) {
+          normalizedFileName = normalizedFileName.split(`${bucketName}/`).pop();
+        }
+        if (normalizedFileName.startsWith('temp/')) {
+          normalizedFileName = normalizedFileName.substring(5);
+        }
+        const fileNameOnly = normalizedFileName.split('/').pop();
+
         await this.commonService.saveDiaryToPermanentStorage(imageFileName);
-        const imageUrl = this.generateS3Url(`diary/${imageFileName}`);
+        const imageUrl = this.generateS3Url(`diary/${fileNameOnly}`);
         movedImageUrls.push(imageUrl);
-        this.logger.log(`✅ Daily story image moved: diary/${imageFileName} -> ${imageUrl}`);
+        this.logger.log(`✅ Daily story image moved: diary/${fileNameOnly} -> ${imageUrl}`);
       }
 
       // Update data with full S3 URLs
       data.images = movedImageUrls.join(',');
     }
 
-    return this.proxyToSpring('post', '/api/story/daily', data, undefined, headers);
+    // walletAddress를 query parameter로 전달
+    return this.proxyToSpring('post', '/api/story/daily', data, { walletAddress: headers }, headers);
   }
 
   async getDailyStories(queryParams: any) {
     return this.proxyToSpring('get', '/api/story/daily/stories', undefined, queryParams);
   }
 
-  async getDailyStory(storyId: number) {
-    return this.proxyToSpring('get', `/api/story/daily/${storyId}`);
+  async getDailyStory(storyId: number, headers?: any) {
+    return this.proxyToSpring('get', `/api/story/daily/${storyId}`, undefined, undefined, headers);
+  }
+
+  async deleteDailyStory(storyId: number, headers?: any) {
+    return this.proxyToSpring('delete', `/api/story/daily/${storyId}`, undefined, undefined, headers);
   }
 
   async searchDailyStories(queryParams: any, headers?: any) {
@@ -221,25 +330,44 @@ export class SpringProxyService {
       const movedImageUrls: string[] = [];
 
       for (const imageFileName of imageFileNames) {
+        // Extract just the filename (remove any bucket/temp prefix)
+        const bucketName = this.configService.get<string>('AWS_S3_BUCKET_NAME2');
+        let normalizedFileName = imageFileName;
+
+        if (normalizedFileName.includes(`${bucketName}/`)) {
+          normalizedFileName = normalizedFileName.split(`${bucketName}/`).pop();
+        }
+        if (normalizedFileName.startsWith('temp/')) {
+          normalizedFileName = normalizedFileName.substring(5);
+        }
+        const fileNameOnly = normalizedFileName.split('/').pop();
+
         await this.commonService.saveReviewToPermanentStorage(imageFileName);
-        const imageUrl = this.generateS3Url(`review/${imageFileName}`);
+        const imageUrl = this.generateS3Url(`review/${fileNameOnly}`);
         movedImageUrls.push(imageUrl);
-        this.logger.log(`✅ Review story image moved: review/${imageFileName} -> ${imageUrl}`);
+        this.logger.log(`✅ Review story image moved: review/${fileNameOnly} -> ${imageUrl}`);
       }
 
       // Update data with full S3 URLs
       data.images = movedImageUrls.join(',');
     }
 
-    return this.proxyToSpring('post', '/api/story/review', data, undefined, headers);
+
+
+    // walletAddress를 query parameter로 전달
+    return this.proxyToSpring('post', '/api/story/review', data, { walletAddress: headers }, headers);
   }
 
-  async getReviewStories(queryParams: any) {
-    return this.proxyToSpring('get', '/api/story/review/reviews', undefined, queryParams);
+  async getReviewStories(queryParams: any, headers?: any) {
+    return this.proxyToSpring('get', '/api/story/review/reviews', undefined, queryParams, headers);
   }
 
-  async getReviewStory(reviewId: number) {
-    return this.proxyToSpring('get', `/api/story/review/${reviewId}`);
+  async getReviewStory(reviewId: number, headers?: any) {
+    return this.proxyToSpring('get', `/api/story/review/${reviewId}`, undefined, undefined, headers);
+  }
+
+  async deleteReviewStory(storyId: number, headers?: any) {
+    return this.proxyToSpring('delete', `/api/story/review/${storyId}`, undefined, undefined, headers);
   }
 
   async searchReviewStories(queryParams: any, headers?: any) {
@@ -260,13 +388,17 @@ export class SpringProxyService {
     return this.proxyToSpring('post', '/api/comment/', data, undefined, headers);
   }
 
+  async deleteComment(commentId: number, headers?: any) {
+    return this.proxyToSpring('delete', `/api/comment/${commentId}`, undefined, undefined, headers);
+  }
+
   // ==================== Chat API ====================
   async createChatRoom(data: CreateChatRoomDto, headers?: any) {
     return this.proxyToSpring('post', '/api/chat/room/create', data, undefined, headers);
   }
 
   async getChatRoomList(headers?: any) {
-    return this.proxyToSpring('get', '/api/chat/room/list', undefined, undefined, undefined);
+    return this.proxyToSpring('get', '/api/chat/room/list', undefined, undefined, headers);
   }
 
   async getChatRoomCard(roomId: number, headers?: any) {
@@ -289,10 +421,22 @@ export class SpringProxyService {
       const movedImageUrls: string[] = [];
 
       for (const imageFileName of imageFileNames) {
+        // Extract just the filename (remove any bucket/temp prefix)
+        const bucketName = this.configService.get<string>('AWS_S3_BUCKET_NAME2');
+        let normalizedFileName = imageFileName;
+
+        if (normalizedFileName.includes(`${bucketName}/`)) {
+          normalizedFileName = normalizedFileName.split(`${bucketName}/`).pop();
+        }
+        if (normalizedFileName.startsWith('temp/')) {
+          normalizedFileName = normalizedFileName.substring(5);
+        }
+        const fileNameOnly = normalizedFileName.split('/').pop();
+
         await this.commonService.saveDonationToPermanentStorage(imageFileName);
-        const imageUrl = this.generateS3Url(`donation/${imageFileName}`);
+        const imageUrl = this.generateS3Url(`donation/${fileNameOnly}`);
         movedImageUrls.push(imageUrl);
-        this.logger.log(`✅ Donation image moved: donation/${imageFileName} -> ${imageUrl}`);
+        this.logger.log(`✅ Donation image moved: donation/${fileNameOnly} -> ${imageUrl}`);
       }
 
       // Update data with full S3 URLs
@@ -311,6 +455,7 @@ export class SpringProxyService {
   }
 
   async makeDonation(data: MakeDonationDto, headers?: any) {
+
     return this.proxyToSpring('post', '/api/donations', data, undefined, headers);
   }
 
@@ -328,6 +473,12 @@ export class SpringProxyService {
   }
 
   async approvePayment(data: ApprovePaymentDto, headers?: any) {
-    return this.proxyToSpring('post', '/api/payment/approve', data, undefined, headers);
+    // walletAddress를 query parameter로 전달
+    return this.proxyToSpring('post', '/api/payment/approve', data, { walletAddress: headers }, headers);
+  }
+
+  // ==================== Shelter API ====================
+  async getShelters(queryParams: any) {
+    return this.proxyToSpring('get', '/api/shelter', undefined, queryParams);
   }
 }

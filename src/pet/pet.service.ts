@@ -64,11 +64,86 @@ export class PetService {
 
   /**
    * 서명된 트랜잭션 전송
+   * Handles both:
+   * - Raw signed transactions (200+ chars) - broadcasts them
+   * - Transaction hashes (66 chars) - verifies they exist on-chain
    */
   async sendSignedTransaction(signedTx: string) {
     console.log('🔍 [sendSignedTransaction] Received signedTx length:', signedTx.length);
     console.log('🔍 [sendSignedTransaction] signedTx preview:', signedTx.substring(0, 100) + '...');
 
+    // 형식 검증
+    if (!signedTx || !signedTx.startsWith('0x')) {
+      const error = new Error('Invalid signed transaction: must start with 0x');
+      const { createBlockchainErrorResponse } = await import('../common/const/blockchain-error-codes');
+      return createBlockchainErrorResponse(error);
+    }
+
+    // Check if this is a transaction hash (66 chars) or raw signed tx (200+ chars)
+    if (signedTx.length === 66) {
+      // This is a transaction hash - the transaction was already broadcast by the wallet
+      console.log(`📝 [sendSignedTransaction] Received transaction hash (wallet already broadcast): ${signedTx}`);
+
+      try {
+        // Wait for the transaction to be mined
+        console.log('⏳ [sendSignedTransaction] Waiting for transaction confirmation...');
+        const receipt = await this.provider.waitForTransaction(signedTx, 1, 30000); // 30 second timeout
+
+        if (!receipt) {
+          throw new Error('Transaction not found or timed out');
+        }
+
+        // Check if transaction was successful (status = 1) or reverted (status = 0)
+        if (receipt.status === 0) {
+          console.error(`❌ Transaction reverted - Block: ${receipt.blockNumber}, Hash: ${signedTx}`);
+
+          // Try to get revert reason
+          try {
+            const tx = await this.provider.getTransaction(signedTx);
+            if (tx) {
+              console.log('📝 [Revert Debug] Transaction details:');
+              console.log('  - From:', tx.from);
+              console.log('  - To:', tx.to);
+              console.log('  - Data:', tx.data.substring(0, 200));
+              console.log('  - Value:', tx.value.toString());
+              console.log('  - Nonce:', tx.nonce);
+
+              // Try to get revert reason by simulating the transaction
+              try {
+                await this.provider.call({
+                  to: tx.to,
+                  data: tx.data,
+                  from: tx.from
+                });
+              } catch (callError: any) {
+                console.error('🔍 [Revert Reason]:', callError.reason || callError.message);
+                throw new Error(`Transaction reverted: ${callError.reason || callError.message || 'Unknown reason'}`);
+              }
+            }
+          } catch (debugError) {
+            console.error('❌ Failed to get revert reason:', debugError.message);
+          }
+
+          throw new Error('Transaction was mined but reverted on-chain');
+        }
+
+        console.log(`✅ [sendSignedTransaction] Transaction confirmed - Block: ${receipt.blockNumber}`);
+
+        return {
+          success: true,
+          txHash: signedTx,
+          blockNumber: receipt.blockNumber,
+          gasUsed: receipt.gasUsed?.toString() || '0',
+        };
+      } catch (error) {
+        console.error('❌ [sendSignedTransaction] Error waiting for transaction:', error.message);
+        const { createBlockchainErrorResponse } = await import('../common/const/blockchain-error-codes');
+        return createBlockchainErrorResponse(error);
+      }
+    }
+
+    // Raw signed transaction - broadcast it
+    console.log('📤 [sendSignedTransaction] Broadcasting raw signed transaction...');
     try {
       const tx = await this.provider.broadcastTransaction(signedTx);
       console.log('🔍 [sendSignedTransaction] Broadcasted tx hash:', tx.hash);
@@ -90,6 +165,31 @@ export class PetService {
       // Check if transaction was successful
       if (receipt.status === 0) {
         console.error(`❌ Transaction reverted - Block: ${receipt.blockNumber}, Hash: ${tx.hash}`);
+
+        // Try to get revert reason
+        try {
+          console.log('📝 [Revert Debug] Transaction details:');
+          console.log('  - From:', tx.from);
+          console.log('  - To:', tx.to);
+          console.log('  - Data:', tx.data.substring(0, 200));
+          console.log('  - Value:', tx.value.toString());
+          console.log('  - Nonce:', tx.nonce);
+
+          // Try to get revert reason by simulating the transaction
+          try {
+            await this.provider.call({
+              to: tx.to,
+              data: tx.data,
+              from: tx.from
+            });
+          } catch (callError: any) {
+            console.error('🔍 [Revert Reason]:', callError.reason || callError.message);
+            throw new Error(`Transaction reverted: ${callError.reason || callError.message || 'Unknown reason'}`);
+          }
+        } catch (debugError) {
+          console.error('❌ Failed to get revert reason:', debugError.message);
+        }
+
         throw new Error('Transaction was mined but reverted on-chain');
       }
 

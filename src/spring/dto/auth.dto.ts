@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsOptional, IsEnum } from 'class-validator';
+import { Gender } from 'src/common/enums/gender.enum';
 
 export class SignupRequestDto {
   @ApiProperty({ description: 'Wallet address' })
@@ -17,10 +18,15 @@ export class SignupRequestDto {
   @IsNotEmpty()
   nickname: string;
 
-  @ApiProperty({ description: 'Gender', required: false })
-  @IsString()
+  @ApiProperty({
+    description: 'Gender: MALE (Male) or FEMALE (Female)',
+    required: false,
+    enum: Gender,
+    example: Gender.MALE
+  })
   @IsOptional()
-  gender?: string;
+  @IsEnum(Gender, { message: '성별은 MALE(남성) 또는 FEMALE(여성)이어야 합니다.' })
+  gender?: Gender;
 
   @ApiProperty({ description: 'Age', required: false })
   @IsNumber()

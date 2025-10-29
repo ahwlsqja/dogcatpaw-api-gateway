@@ -3,16 +3,6 @@ import { IsString, IsNotEmpty, IsNumber, IsOptional, IsLowercase } from 'class-v
 
 export class CreateChatRoomDto {
   @ApiProperty({
-    description: 'Wallet address of adoption post writer (Guardian who created the adoption post)',
-    example: '0xe9ebc691ccfb15cb4bf31af83c624b7020f0d2c0',
-    required: true,
-  })
-  @IsString()
-  @IsNotEmpty()
-  @IsLowercase({ message: 'Wallet address must be lowercase' })
-  adoptWriterId: string;
-
-  @ApiProperty({
     description: 'Adoption post ID to create chat room for',
     example: 456,
     required: true,

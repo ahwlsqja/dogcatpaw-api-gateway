@@ -14,6 +14,7 @@ import { VCErrorCode } from 'src/common/const/vc-error-codes';
 import { ChallengeRequestDto, ChallengeResponseDto } from './dto/challenge.dto';
 import { LoginRequestDto, LoginResponseDto } from './dto/login.dto';
 import { ProfileResponseDto, LogoutResponseDto } from './dto/profile.dto';
+import { RefreshRequestDto, RefreshResponseDto } from './dto/refresh.dto';
 
 @ApiTags('Authentication')
 @Controller('api/auth')
@@ -169,7 +170,6 @@ Verify wallet signature and create authenticated session. If user has VCs, also 
         walletAddress: dto.walletAddress
       }).catch((error) => {
         // VC Service 에러 시 null 반환 (로그인은 계속 진행)
-        console.log('Guardian info fetch failed, continuing without guardian data:', error.message);
         return null;
       });
 
@@ -181,7 +181,6 @@ Verify wallet signature and create authenticated session. If user has VCs, also 
           // 에러 응답인 경우
           if (guardianInfoResponse.errorCode === VCErrorCode.GUARDIAN_NOT_FOUND) {
             // GUARDIAN_NOT_FOUND - 정상 케이스
-            console.log('Guardian not registered yet');
             guardianInfo = null;
           } else {
             // 다른 에러 - 예외 발생
@@ -321,8 +320,6 @@ Retrieve complete user profile including:
       ? guardianInfoResponse.data
       : null;
 
-    console.log(guardianInfo)
-
     // Get all VCs
     /**
       petDID,
@@ -338,6 +335,35 @@ Retrieve complete user profile including:
     // Get pets
     const petVCs = vcs.filter((vc: VCDto) => vc.vcType === 'GuardianIssuedPetVC');
 
+    const pets = petVCs.map((vc: any) => {
+      // JWT 파싱 (vcJwt에서 payload 추출)
+      let credentialSubject = vc.credentialSubject;
+      let issuanceDate = vc.issuanceDate;
+
+      if (!credentialSubject && vc.vcJwt) {
+        try {
+          // JWT는 "header.payload.signature" 형식
+          const parts = vc.vcJwt.split('.');
+          if (parts.length === 3) {
+            // base64url → base64 변환
+            const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+            const payload = JSON.parse(Buffer.from(base64, 'base64').toString());
+            credentialSubject = payload.vc?.credentialSubject;
+            issuanceDate = payload.nbf ? new Date(payload.nbf * 1000).toISOString() : vc.createdAt;
+          }
+        } catch (err) {
+          // JWT parsing failed
+        }
+      }
+
+      return {
+        petDID: credentialSubject?.id || vc.petDID,
+        name: credentialSubject?.petName || credentialSubject?.name,
+        species: credentialSubject?.specifics || credentialSubject?.species,
+        issuedAt: issuanceDate,
+      };
+    });
+
     return {
       success: true,
       profile: {
@@ -350,12 +376,7 @@ Retrieve complete user profile including:
           pets: petVCs.length,
           identity: vcs.filter((vc: any) => vc.vcType === 'IdentityCard').length,
         },
-        pets: petVCs.map((vc: any) => ({
-          petDID: vc.credentialSubject?.petDID,
-          name: vc.credentialSubject?.name,
-          species: vc.credentialSubject?.species,
-          issuedAt: vc.issuanceDate,
-        })),
+        pets,
       },
     };
   }
@@ -478,5 +499,127 @@ Revoke ALL access tokens and VPs for this wallet address. This logs out all sess
       success: true,
       message: 'All sessions logged out successfully',
     };
+  }
+
+  /**
+   * Refresh access token using refresh token
+   */
+  @Post('refresh')
+  @Public()
+  @ApiOperation({
+    summary: 'Refresh Access Token',
+    description: `
+**Refresh Access Token**
+
+Use your refresh token to obtain a new access token. The refresh token remains valid and can be reused until it expires.
+
+**How It Works:**
+1. Send your refresh token
+2. System validates the refresh token
+3. New access token is issued
+4. **Same refresh token can be used again** (until it expires in 7 days)
+
+**When to Use:**
+- When your access token expires (24 hours)
+- Before making API calls with an expired token
+- Implement automatic refresh in your frontend
+
+**Token Lifecycle:**
+- Access Token: 24 hours (short-lived, frequently refreshed)
+- Refresh Token: 7 days (long-lived, reusable)
+
+**Response:**
+- accessToken: New JWT for API calls (24h validity)
+- Same refresh token can continue to be used
+
+**Error Cases:**
+- Invalid refresh token → 401 Unauthorized
+- Expired refresh token → 401 Unauthorized (re-login required)
+
+**Security Note:**
+- If you suspect your refresh token is compromised, use logout-all endpoint
+- Refresh token is stored in Redis and validated on each use
+    `,
+  })
+  @ApiBody({ type: RefreshRequestDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Token refreshed successfully - new access token issued',
+    type: RefreshResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or expired refresh token',
+  })
+  async refresh(@Body() dto: RefreshRequestDto) {
+    try {
+      // 1. Validate refresh token
+      const decoded = await this.authService.validateRefreshToken(dto.refreshToken);
+
+      if (!decoded) {
+        throw new HttpException('Invalid or expired refresh token', HttpStatus.UNAUTHORIZED);
+      }
+
+      const walletAddress = decoded.address;
+
+      // 2. Get guardian info (same as login)
+      const guardianInfoResponse = await this.vcProxyService.getGuardianInfo({
+        walletAddress
+      }).catch(() => null);
+
+      let guardianInfo = null;
+      if (guardianInfoResponse) {
+        if (!guardianInfoResponse.success) {
+          if (guardianInfoResponse.errorCode !== VCErrorCode.GUARDIAN_NOT_FOUND) {
+            throw new Error(
+              `VC Service error - ${guardianInfoResponse.errorCode}: ${guardianInfoResponse.errorMessage}`
+            );
+          }
+        } else {
+          guardianInfo = guardianInfoResponse.data || null;
+        }
+      }
+
+      // 3. Get VCs
+      const vcsResponse = await this.vcProxyService.getVCsByWallet({
+        walletAddress
+      }).catch(() => ({ success: false, data: { vcs: [] } }));
+      const vcs = vcsResponse.data?.vcs || [];
+
+      // 4. Create new access token
+      const accessToken = await this.authService.createAccessToken({
+        address: walletAddress,
+        isGuardian: !!guardianInfo,
+        vcCount: vcs.length,
+      });
+
+      // 5. Handle VP - if no VCs, store EMPTY
+      if (vcs.length === 0) {
+        await this.tokenService.setVPForToken(accessToken, "EMPTY", 86400);
+
+        return {
+          success: true,
+          accessToken,
+          refreshToken: dto.refreshToken, // Return same refresh token
+          message: 'Token refreshed successfully (no VCs)',
+        };
+      }
+
+      // 6. If VCs exist, we need to create VP but we don't have the signature
+      // For refresh endpoint, we'll store EMPTY and user should re-login for full VP
+      await this.tokenService.setVPForToken(accessToken, "EMPTY", 86400);
+
+      return {
+        success: true,
+        accessToken,
+        refreshToken: dto.refreshToken, // Return same refresh token
+        message: 'Token refreshed successfully. VP was reset - re-login for full VP if needed.',
+      };
+    } catch (error) {
+      throw new HttpException(
+        error.message || 'Failed to refresh token',
+        HttpStatus.UNAUTHORIZED
+      );
+    }
   }
 }

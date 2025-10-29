@@ -26,5 +26,6 @@ export interface VCTransferJob {
   previousGuardian: string;
   signature: string;
   message: any;
+  vcSignedData: string;
   petData: any;
 }

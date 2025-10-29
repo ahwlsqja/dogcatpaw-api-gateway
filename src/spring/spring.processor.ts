@@ -7,6 +7,12 @@ import { Job } from 'bull';
 import { firstValueFrom } from 'rxjs';
 import { VcProxyService } from 'src/vc/vc.proxy.service';
 import { Role } from 'src/common/enums/role.enum';
+import {
+  SpringErrorCode,
+  parseAxiosError,
+  isRetryableError,
+  SpringRetryStrategy,
+} from 'src/common/const/spring-error-codes';
 
 export interface UserSyncJob {
   walletAddress: string;
@@ -69,6 +75,7 @@ export class SpringProcessor {
   ) {
     this.springBaseUrl = this.configService.get<string>('SPRING_SERVER_URL') || 'http://localhost:8080';
     this.logger.log('Spring Processor initialized');
+    this.logger.log(`🔗 Spring Server URL: ${this.springBaseUrl}`);
   }
 
   @OnQueueActive()
@@ -101,10 +108,51 @@ export class SpringProcessor {
 
   @OnQueueFailed()
   onFailed(job: Job, error: Error) {
+    const errorInfo = error['errorCode'] ?
+      `ErrorCode: ${error['errorCode']} | Retryable: ${error['retryable']}` :
+      error.message;
+
     this.logger.error(
-      `❌ Job ${job.id} failed - Type: ${job.name} | Attempt: ${job.attemptsMade}/${job.opts.attempts}`,
+      `❌ Job ${job.id} failed - Type: ${job.name} | Attempt: ${job.attemptsMade}/${job.opts.attempts} | ${errorInfo}`,
       error.stack
     );
+
+    // Log final failure after all retries exhausted
+    if (job.attemptsMade >= (job.opts.attempts || 1)) {
+      this.logger.error(
+        `💀 Job ${job.id} permanently failed after ${job.attemptsMade} attempts - Type: ${job.name}`
+      );
+    }
+  }
+
+  /**
+   * Handle errors with retry logic based on error codes
+   */
+  private handleJobError(error: any, jobId: string | number, jobName: string): never {
+    // Parse Axios error to Spring error
+    const springError = error.response ? parseAxiosError(error) : error;
+
+    // Check if error has errorCode (already parsed)
+    const errorCode = springError.errorCode || SpringErrorCode.INTERNAL_SERVER_ERROR;
+    const retryable = springError.retryable !== undefined ? springError.retryable : isRetryableError(errorCode);
+
+    this.logger.warn(
+      `Job ${jobId} (${jobName}) encountered error: ${errorCode} | Retryable: ${retryable}`
+    );
+
+    // Create enriched error object for Bull retry mechanism
+    const enrichedError = new Error(springError.errorMessage || error.message);
+    enrichedError['errorCode'] = errorCode;
+    enrichedError['retryable'] = retryable;
+    enrichedError['statusCode'] = springError.statusCode;
+
+    // If not retryable, mark job as failed without retry
+    if (!retryable) {
+      enrichedError['attemptsMade'] = 999; // Force Bull to not retry
+      this.logger.error(`Non-retryable error ${errorCode} in job ${jobId} - will not retry`);
+    }
+
+    throw enrichedError;
   }
 
   /**
@@ -169,7 +217,7 @@ export class SpringProcessor {
       };
     } catch (error) {
       this.logger.error(`❌ Spring registration error for ${walletAddress}:`, error.message);
-      throw error; // Bull will retry
+      this.handleJobError(error, job.id, job.name);
     }
   }
 
@@ -230,8 +278,8 @@ export class SpringProcessor {
         duration
       };
     } catch (error) {
-      this.logger.error(`❌ Spring registration error for ${walletAddress}:`, error.message);
-      throw error; // Bull will retry
+      this.logger.error(`❌ Spring admin registration error for ${walletAddress}:`, error.message);
+      this.handleJobError(error, job.id, job.name);
     }
   }
 
@@ -285,7 +333,7 @@ export class SpringProcessor {
       };
     } catch (error) {
       this.logger.error(`❌ Spring ${action} error for ${walletAddress}:`, error.message);
-      throw error; // Bull will retry
+      this.handleJobError(error, job.id, job.name);
     }
   }
 
@@ -296,12 +344,17 @@ export class SpringProcessor {
   async handleTransferSync(job: Job<PetTransferJob>) {
     const { adoptionId, newGuardian } = job.data;
 
+    this.logger.log(`🔄 [sync-pet-transfer] Starting transfer sync for adoption ${adoptionId}`);
+    this.logger.log(`   - Adoption ID: ${adoptionId}`);
+    this.logger.log(`   - New Guardian: ${newGuardian}`);
+    this.logger.log(`   - Spring URL: ${this.springBaseUrl}/api/adoption/${adoptionId}/delegate`);
+
     try {
       const startTime = Date.now();
 
       const response = await firstValueFrom(
-        this.httpService.post(
-          `${this.springBaseUrl}/api/adoption/${adoptionId}/complete`,
+        this.httpService.patch(
+          `${this.springBaseUrl}/api/adoption/${adoptionId}/delegate`,
           {},
           {
             headers: {
@@ -314,7 +367,8 @@ export class SpringProcessor {
       );
 
       const duration = Date.now() - startTime;
-      this.logger.debug(`Transfer sync took ${duration}ms for pet ${adoptionId}`);
+      this.logger.log(`✅ [sync-pet-transfer] Transfer sync succeeded in ${duration}ms for adoption ${adoptionId}`);
+      this.logger.debug(`   - Response:`, JSON.stringify(response.data, null, 2));
 
       return {
         success: true,
@@ -323,8 +377,11 @@ export class SpringProcessor {
         springResponse: response.data
       };
     } catch (error) {
-      this.logger.error(`Transfer sync error for ${adoptionId}:`, error.message);
-      throw error;
+      this.logger.error(`❌ [sync-pet-transfer] Transfer sync failed for adoption ${adoptionId}`);
+      this.logger.error(`   - Error message: ${error.message}`);
+      this.logger.error(`   - Error response:`, error.response?.data || 'No response data');
+      this.logger.error(`   - Status code:`, error.response?.status || 'No status');
+      this.handleJobError(error, job.id, job.name);
     }
   }
 
@@ -369,7 +426,7 @@ export class SpringProcessor {
       };
     } catch (error) {
       this.logger.error(`VP delivery error for ${walletAddress}:`, error.message);
-      throw error;
+      this.handleJobError(error, job.id, job.name);
     }
   }
 
@@ -417,7 +474,7 @@ export class SpringProcessor {
       };
     } catch (error) {
       this.logger.error(`Pet registration sync error for ${petDID}:`, error.message);
-      throw error;
+      this.handleJobError(error, job.id, job.name);
     }
   }
 }

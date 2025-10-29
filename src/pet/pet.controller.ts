@@ -1,5 +1,5 @@
 // api-gateway/src/pet/pet.controller.ts
-import { Controller, Get, Post, Body, Param, UseGuards, Req, BadRequestException, HttpStatus, HttpException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Req, BadRequestException, HttpStatus, HttpException, Patch, Delete } from '@nestjs/common';
 import { Request } from 'express';
 import { PetService } from './pet.service';
 import { CreatePetDto } from './dto/create-pet.dto';
@@ -20,6 +20,9 @@ import { ConfigService } from '@nestjs/config';
 import { SpringService } from 'src/spring/spring.service';
 import { Public } from '../auth/decorator/public.decorator';
 import { IndexerProxyService } from 'src/indexer/indexer.proxy.service';
+import { RedisService } from 'src/common/redis/redis.service';
+import { ChatGateway } from 'src/chat/chat.gateway';
+import { SpringAuthGuard } from 'src/auth/guard/spring-auth-guard';
 
 @ApiTags('Pet')
 @ApiBearerAuth('access-token')
@@ -37,6 +40,8 @@ export class PetController {
     private readonly configService: ConfigService,
     private readonly springService: SpringService,
     private readonly indexerProxyService: IndexerProxyService,
+    private readonly redisService: RedisService,
+    private readonly chatGateway: ChatGateway,
   ) {}
 
 
@@ -277,6 +282,7 @@ const vcSignature = await wallet.signMessage(response.vcSigningData.messageHash)
     let noseImageBuffer: Buffer;
     try {
       noseImageBuffer = await this.commonService.getFileFromTemp(dto.noseImage);
+      console.log(123123)
     } catch (error) {
       console.error('S3에서 비문 이미지 가져오기 실패:', error);
       throw new BadRequestException('비문 이미지를 찾을 수 없습니다.');
@@ -292,7 +298,8 @@ const vcSignature = await wallet.signMessage(response.vcSigningData.messageHash)
 
     let featureVector: number[];
     let featureVectorHash: string;
-
+    console.log(123123)
+    
     try {
       const mlResult = await this.noseEmbedderService.extractNoseVector(
         noseImageBuffer,
@@ -376,6 +383,11 @@ const vcSignature = await wallet.signMessage(response.vcSigningData.messageHash)
       vcSigningData: {
         message: vcSigningData.message,
         messageHash: vcSigningData.messageHash,
+        signingData: vcSigningData.signingData,
+        header: vcSigningData.header,
+        encodedHeader: vcSigningData.encodedHeader,
+        encodedPayload: vcSigningData.encodedPayload,
+        instruction: vcSigningData.instruction,
       },
       nextStep: 'Sign petRegistrationTx, guardianLinkTx, and vcMessageHash, then call POST /pet/register with all signatures',
     };
@@ -712,13 +724,19 @@ console.log('Background Jobs:', result.jobs);
     };
 
     // 8. 이미지 이동 큐 등록 (완료 후 자동으로 Spring 동기화 트리거)
+    // Extract filenames from paths (e.g., "dogcatpaw-backend/temp/file.jpg" -> "file.jpg")
     const profileImageFileNames = dto.images && dto.images.trim()
-      ? dto.images.split(',').map(name => name.trim()).filter(name => name)
+      ? dto.images.split(',')
+          .map(name => name.trim())
+          .filter(name => name)
+          .map(path => path.split('/').pop()) // Extract filename from path
       : [];
+
+    const noseImageFileName = dto.noseImage.split('/').pop();
 
     const imageMoveJobId = await this.springService.queuePetImageMove(
       petDID,
-      dto.noseImage,
+      noseImageFileName,
       profileImageFileNames,
       guardianAddress,
       petData
@@ -951,7 +969,9 @@ const signature = await wallet.signMessage(ethers.getBytes(response.messageHash)
     // 3. 비문 데이터 가져오기
     const biometricData = await this.petService.getBiometricData(petDID);
 
-    // 5. 이전용 서명 데이터 생성 (새 보호자가 서명해야 함)
+    // 5. 이전용 서명 데이터 생성
+    // 💡 현재 소유자가 이 API를 호출하지만, 반환된 데이터는 "새 보호자"가 서명해야 함
+    // 플로우: 현재 소유자 → 서명 데이터 생성 → 새 소유자에게 전달 → 새 소유자가 서명
     const transferSigningData = this.vcService.prepareTransferVCSigning({
       previousGuardian: currentGuardian,
       newGuardian: dto.newGuardianAddress,
@@ -1562,6 +1582,7 @@ The GuardianRegistry contract (which maintains guardian → pets mapping) is NOT
     @Req() req: Request,
     @Body() dto: AcceptTransferDto
   ) {
+    console.log(dto.message.vc)
     const newGuardian = req.user?.address;
 
     // 1. 메시지의 새 보호자가 현재 사용자인지 확인
@@ -1592,7 +1613,27 @@ The GuardianRegistry contract (which maintains guardian → pets mapping) is NOT
       };
     }
 
-    // 3. 온체인 Controller 변경 (Critical - must succeed)
+    // 3. Get previous guardian from message
+    const previousGuardian = dto.message.vc?.credentialSubject?.previousGuardian;
+
+    // 4. 온체인 Controller 변경 (Critical - must succeed)
+    // ⚠️  중요: changeController는 현재 소유자만 실행 가능!
+    // 프론트엔드에서 현재 소유자가 서명한 signedTx를 전달해야 함
+    console.log(`🔍 [accept-transfer] Attempting changeController:`);
+    console.log(`  - Pet DID: ${petDID}`);
+    console.log(`  - Previous Guardian: ${previousGuardian}`);
+    console.log(`  - New Guardian: ${newGuardian}`);
+    console.log(`  - SignedTx provided: ${dto.signedTx ? 'Yes (length: ' + dto.signedTx.length + ')' : 'No'}`);
+
+    // Get current controller from blockchain
+    const didDoc = await this.petService.getDIDDocument(petDID);
+    console.log(`  - Current Controller on-chain: ${didDoc.controller}`);
+    console.log(`  - Expected Previous Guardian: ${previousGuardian}`);
+
+    if (didDoc.controller.toLowerCase() !== previousGuardian.toLowerCase()) {
+      console.error(`❌ Controller mismatch! On-chain: ${didDoc.controller}, Expected: ${previousGuardian}`);
+    }
+
     const txResult = await this.petService.changeController(
       petDID,
       newGuardian,
@@ -1617,25 +1658,25 @@ The GuardianRegistry contract (which maintains guardian → pets mapping) is NOT
 
     console.log(`✅ Pet transfered on blockchain: ${petDID} - TxHash: ${txResult.txHash}`);
 
-    // 4. GuardianRegistry sync skipped
+    // 5. GuardianRegistry sync skipped
     // GuardianRegistry는 보조 매핑이고, linkPet/unlinkPet은 msg.sender가 guardian이어야 하므로
     // 백그라운드 job으로 처리 불가. PetDIDRegistry의 controller만 신뢰 가능한 소스.
     console.log(`⚠️  GuardianRegistry sync skipped (requires user signatures)`);
 
-    // 5. Queue VC transfer processing (invalidate old VC + create new VC)
+    // 6. Queue VC transfer processing (invalidate old VC + create new VC)
     // 블록체인 성공 후 즉시 응답, VC는 백그라운드에서 BullMQ로 처리
-    const previousGuardian = dto.message.vc?.credentialSubject?.previousGuardian;
     const vcTransferJobId = await this.vcQueueService.queueVCTransfer(
       petDID,
       newGuardian,
       previousGuardian,
       dto.signature,
       dto.message,
+      dto.vcSignedData,
       dto.petData
     );
     console.log(`📝 Queued VC transfer job - Job ID: ${vcTransferJobId}`);
 
-    // 6. Spring 서버 동기화 큐 등록
+    // 7. Spring 서버 동기화 큐 등록
     const springJobId = await this.springService.queueTransferPet(
       adoptionId,
       newGuardian
@@ -1651,6 +1692,9 @@ The GuardianRegistry contract (which maintains guardian → pets mapping) is NOT
       message: 'Pet ownership transferred successfully on blockchain. VC processing queued.',
     };
   }
+
+
+
 
   /**
    * 펫 소유권 이전 히스토리 조회 (uses blockchain-indexer service)
@@ -2006,4 +2050,429 @@ console.log(\`Transaction hashes: \${history.map(h => h.transactionHash).join(',
       };
     }
   }
+
+
+    // ==================== 🆕 Redis-based Adoption Transfer Flow ====================
+
+    /**
+     * POST /pet/transfer/init/:adoptionId
+     *
+     * Transfer 초기화 - 소유자가 입양 승인 및 이전 시작
+     *
+     * Flow:
+     * 1. 소유자가 prepare-transfer 완료 후 호출
+     * 2. Redis에 transfer 데이터 저장 (TTL: 24시간)
+     * 3. Redis Pub/Sub로 채팅방에 알림 발행
+     * 4. WebSocket으로 실시간 알림
+     */
+    @Post('transfer/init/:adoptionId')
+    @UseGuards(DIDAuthGuard)
+    @ApiOperation({
+      summary: 'Initialize Pet Transfer - Store prepare-transfer data in Redis',
+      description: `
+  Owner initiates pet transfer by storing Step 1 (prepare-transfer) result in Redis.
+
+  **Authorization**: Owner only (current pet controller)
+
+  **Request Body**:
+  \`\`\`json
+  {
+    "petDID": "did:ethr:besu:0x...",
+    "roomId": 1,
+    "prepareData": {
+      "success": true,
+      "message": { ... },
+      "messageHash": "0x...",
+      "signingData": "..."
+    },
+    "newGuardianAddress": "0x..."
+  }
+  \`\`\`
+
+  **Response**:
+  \`\`\`json
+  {
+    "success": true,
+    "message": "Transfer initiated successfully",
+    "adoptionId": 1,
+    "expiresIn": 86400
+  }
+  \`\`\`
+
+  **What Happens**:
+  1. Stores transfer data in Redis with key \`adoption:transfer:{adoptionId}\`
+  2. Sets TTL to 24 hours
+  3. Publishes \`transferInitiated\` event to Redis channel \`nestjs:broadcast:{roomId}\`
+  4. WebSocket broadcasts to chat room participants
+      `,
+    })
+    @ApiResponse({ status: 201, description: 'Transfer initialized successfully' })
+    @ApiResponse({ status: 400, description: 'Invalid request data' })
+    @ApiResponse({ status: 401, description: 'Unauthorized - not the owner' })
+    async initTransfer(
+      @Param('adoptionId') adoptionId: number,
+      @Body() body: {
+        petDID: string;
+        roomId: number;
+        prepareData: any;
+        newGuardianAddress: string;
+      },
+      @Req() req: Request,
+    ) {
+      try {
+        const currentUser = req.user as any;
+
+        // Redis 키 생성
+        const redisKey = `adoption:transfer:${adoptionId}`;
+
+        // Transfer 데이터 구조
+        const transferData = {
+          petDID: body.petDID,
+          adoptionId,
+          roomId: body.roomId,
+          status: 'INITIATED',
+          prepareData: body.prepareData,
+          currentGuardianAddress: currentUser.address.toLowerCase(),
+          newGuardianAddress: body.newGuardianAddress.toLowerCase(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        // Redis에 저장 (TTL: 24시간)
+        await this.redisService.setex(
+          redisKey,
+          86400,  // 24 hours
+          JSON.stringify(transferData),
+        );
+
+        console.log(`✅ Transfer initialized for adoption ${adoptionId}`);
+        console.log(`  - Pet DID: ${body.petDID}`);
+        console.log(`  - Room ID: ${body.roomId}`);
+        console.log(`  - New Guardian: ${body.newGuardianAddress}`);
+
+        // Redis Pub/Sub로 채팅방에 알림 발행
+        const notificationMessage = {
+          type: 'transferInitiated',
+          adoptionId,
+          petDID: body.petDID,
+          status: 'INITIATED',
+          message: '입양이 승인되었습니다! 비문 검증을 시작해주세요.',
+          timestamp: new Date().toISOString(),
+        };
+
+        await this.redisService.publish(
+          `nestjs:broadcast:${body.roomId}`,
+          JSON.stringify(notificationMessage),
+        );
+
+        console.log(`📢 Published transferInitiated event to room ${body.roomId}`);
+
+        // WebSocket으로도 직접 전송 (fallback)
+        this.chatGateway.server
+          .to(`room:${body.roomId}`)
+          .emit('transferInitiated', notificationMessage);
+
+        return {
+          success: true,
+          message: 'Transfer initiated successfully',
+          adoptionId,
+          expiresIn: 86400,
+        };
+      } catch (error) {
+        console.error(`❌ Failed to initialize transfer:`, error);
+        throw new BadRequestException({
+          success: false,
+          error: 'Failed to initialize transfer',
+          message: error.message,
+        });
+      }
+    }
+
+    /**
+     * GET /pet/transfer/data/:adoptionId
+     *
+     * Transfer 데이터 조회 - Redis에서 가져오기
+     *
+     * 입양자가 transfer 페이지에 진입할 때 Step 1 데이터를 가져옴
+     */
+    @Get('transfer/data/:adoptionId')
+    @UseGuards(DIDAuthGuard)
+    @ApiOperation({
+      summary: 'Get Transfer Data from Redis',
+      description: `
+  Retrieve stored transfer data for an adoption process.
+
+  **Authorization**: Adopter or Owner
+
+  **Response**:
+  \`\`\`json
+  {
+    "success": true,
+    "data": {
+      "petDID": "did:ethr:besu:0x...",
+      "adoptionId": 1,
+      "roomId": 1,
+      "status": "INITIATED",
+      "prepareData": { ... },
+      "currentGuardianAddress": "0x...",
+      "newGuardianAddress": "0x...",
+      "createdAt": "2025-10-29T10:00:00Z",
+      "updatedAt": "2025-10-29T10:00:00Z"
+    }
+  }
+  \`\`\`
+
+  **Error Cases**:
+  - 404: Transfer not found (owner hasn't initiated yet)
+  - 410: Transfer expired (> 24 hours)
+      `,
+    })
+    @ApiResponse({ status: 200, description: 'Transfer data retrieved successfully' })
+    @ApiResponse({ status: 404, description: 'Transfer not found or expired' })
+    async getTransferData(
+      @Param('adoptionId') adoptionId: number,
+    ) {
+      try {
+        const redisKey = `adoption:transfer:${adoptionId}`;
+        const data = await this.redisService.get(redisKey);
+
+        if (!data) {
+          throw new HttpException(
+            {
+              success: false,
+              error: 'Transfer not found',
+              message: '소유자가 아직 입양을 승인하지 않았거나, 이전 데이터가 만료되었습니다.',
+            },
+            HttpStatus.NOT_FOUND,
+          );
+        }
+
+        const transferData = JSON.parse(data);
+
+        console.log(`📥 Retrieved transfer data for adoption ${adoptionId}`);
+        console.log(`  - Status: ${transferData.status}`);
+        console.log(`  - Pet DID: ${transferData.petDID}`);
+
+        return {
+          success: true,
+          data: transferData,
+        };
+      } catch (error) {
+        if (error instanceof HttpException) {
+          throw error;
+        }
+
+        console.error(`❌ Failed to get transfer data:`, error);
+        throw new BadRequestException({
+          success: false,
+          error: 'Failed to retrieve transfer data',
+          message: error.message,
+        });
+      }
+    }
+
+    /**
+     * PATCH /pet/transfer/update/:adoptionId
+     *
+     * Transfer 상태 업데이트
+     *
+     * 입양자가 각 단계(서명, 검증)를 완료할 때마다 호출
+     */
+    @Patch('transfer/update/:adoptionId')
+    @UseGuards(DIDAuthGuard)
+    @ApiOperation({
+      summary: 'Update Transfer Status in Redis',
+      description: `
+  Update transfer status as adopter completes each step.
+
+  **Authorization**: Adopter (new guardian)
+
+  **Request Body**:
+  \`\`\`json
+  {
+    "status": "SIGNED" | "VERIFIED" | "COMPLETED",
+    "signature": "0x...",  // for SIGNED status
+    "verificationProof": { ... },  // for VERIFIED status
+    "similarity": 85  // for VERIFIED status
+  }
+  \`\`\`
+
+  **Response**:
+  \`\`\`json
+  {
+    "success": true,
+    "message": "Transfer status updated",
+    "status": "VERIFIED"
+  }
+  \`\`\`
+
+  **What Happens**:
+  1. Updates Redis data
+  2. Publishes \`transferUpdated\` event to Redis Pub/Sub
+  3. WebSocket broadcasts to chat room
+      `,
+    })
+    @ApiResponse({ status: 200, description: 'Status updated successfully' })
+    @ApiResponse({ status: 404, description: 'Transfer not found' })
+    async updateTransferStatus(
+      @Param('adoptionId') adoptionId: number,
+      @Body() body: {
+        status: 'SIGNED' | 'VERIFIED' | 'COMPLETED';
+        signature?: string;
+        verificationProof?: any;
+        similarity?: number;
+      },
+    ) {
+      try {
+        const redisKey = `adoption:transfer:${adoptionId}`;
+        const data = await this.redisService.get(redisKey);
+
+        if (!data) {
+          throw new HttpException(
+            {
+              success: false,
+              error: 'Transfer not found',
+              message: 'Transfer data not found or expired',
+            },
+            HttpStatus.NOT_FOUND,
+          );
+        }
+
+        const transferData = JSON.parse(data);
+
+        // 데이터 업데이트
+        const updatedData = {
+          ...transferData,
+          status: body.status,
+          signature: body.signature || transferData.signature,
+          verificationProof: body.verificationProof || transferData.verificationProof,
+          similarity: body.similarity !== undefined ? body.similarity : transferData.similarity,
+          updatedAt: new Date().toISOString(),
+        };
+
+        // Redis 업데이트
+        await this.redisService.setex(
+          redisKey,
+          86400,  // TTL 유지
+          JSON.stringify(updatedData),
+        );
+
+        console.log(`✅ Transfer status updated for adoption ${adoptionId}`);
+        console.log(`  - New Status: ${body.status}`);
+
+        // Redis Pub/Sub로 알림 발행
+        const notificationMessage = {
+          type: 'transferUpdated',
+          adoptionId,
+          status: body.status,
+          message: this.getStatusMessage(body.status),
+          timestamp: new Date().toISOString(),
+        };
+
+        await this.redisService.publish(
+          `nestjs:broadcast:${transferData.roomId}`,
+          JSON.stringify(notificationMessage),
+        );
+
+        // WebSocket으로도 전송
+        this.chatGateway.server
+          .to(`room:${transferData.roomId}`)
+          .emit('transferUpdated', notificationMessage);
+
+        console.log(`📢 Published transferUpdated event to room ${transferData.roomId}`);
+
+        return {
+          success: true,
+          message: 'Transfer status updated',
+          status: body.status,
+        };
+      } catch (error) {
+        if (error instanceof HttpException) {
+          throw error;
+        }
+
+        console.error(`❌ Failed to update transfer status:`, error);
+        throw new BadRequestException({
+          success: false,
+          error: 'Failed to update transfer status',
+          message: error.message,
+        });
+      }
+    }
+
+// pet.controller.ts에 추가
+  @Delete('transfer/cancel/:adoptionId')
+  @UseGuards(DIDAuthGuard)
+  async cancelTransfer(
+    @Param('adoptionId') adoptionId: number,
+    @Req() req: Request
+  ) {
+    const currentUser = req.user?.address;
+    const redisKey = `pet-transfer:${adoptionId}`;
+
+    try {
+      // 1. Redis에서 데이터 먼저 조회
+      const dataStr = await this.redisService.get(redisKey);
+
+      if (!dataStr) {
+        return {
+          success: false,
+          error: 'Transfer data not found',
+        };
+      }
+
+      const transferData = JSON.parse(dataStr);
+
+      // 2. 권한 체크 (소유자만 취소 가능)
+      if (transferData.currentGuardianAddress?.toLowerCase() !== currentUser?.toLowerCase()) {
+        return {
+          success: false,
+          error: 'Only the current owner can cancel the transfer',
+        };
+      }
+
+      // 3. Redis 데이터 삭제
+      await this.redisService.del(redisKey);
+      console.log(`✅ Transfer cancelled for adoption ${adoptionId}`);
+
+      // 4. WebSocket으로 알림 (roomId 사용)
+      if (transferData.roomId) {
+        await this.redisService.publish(
+          `nestjs:broadcast:${transferData.roomId}`,
+          JSON.stringify({
+            type: 'transferCancelled',
+            adoptionId,
+            petDID: transferData.petDID,
+            message: '입양 이전이 취소되었습니다.',
+            timestamp: new Date().toISOString(),
+          })
+        );
+        console.log(`📢 Published transferCancelled event to room ${transferData.roomId}`);
+      }
+
+      return {
+        success: true,
+        message: 'Transfer cancelled successfully',
+      };
+    } catch (error) {
+      console.error('❌ Cancel transfer error:', error);
+      return {
+        success: false,
+        error: 'Failed to cancel transfer',
+      };
+    }
+  }
+
+    /**
+     * Helper: 상태별 메시지 반환
+     */
+    private getStatusMessage(status: string): string {
+      const messages = {
+        'INITIATED': '입양이 승인되었습니다.',
+        'SIGNED': '서명이 완료되었습니다.',
+        'VERIFIED': '비문 검증이 완료되었습니다.',
+        'COMPLETED': '입양이 완료되었습니다!',
+      };
+      return messages[status] || '상태가 업데이트되었습니다.';
+    }
 }

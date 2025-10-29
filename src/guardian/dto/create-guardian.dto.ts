@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsOptional, IsNumber, IsEthereumAddress, IsEmail, IsEnum } from 'class-validator';
 import { Role } from 'src/common/enums/role.enum';
+import { Gender } from 'src/common/enums/gender.enum';
 
 export class CreateGuardianDto {
   @ApiProperty({
@@ -54,13 +55,13 @@ export class CreateGuardianDto {
   profileUrl?: string;
 
   @ApiPropertyOptional({
-    description: 'Gender: "M" (Male) or "F" (Female) (optional)',
-    example: 'M',
-    enum: ['M', 'F']
+    description: 'Gender: MALE (Male) or FEMALE (Female) (optional)',
+    example: Gender.MALE,
+    enum: Gender
   })
   @IsOptional()
-  @IsString()
-  gender?: string;
+  @IsEnum(Gender, { message: '성별은 MALE(남성) 또는 FEMALE(여성)이어야 합니다.' })
+  gender?: Gender;
 
   @ApiPropertyOptional({
     description: 'Age in years (optional). Used for demographic purposes.',

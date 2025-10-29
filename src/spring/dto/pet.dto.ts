@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsNumber, IsOptional, IsBoolean } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsOptional, IsBoolean, IsEnum } from 'class-validator';
+import { Gender } from 'src/common/enums/gender.enum';
 
 export class RegisterPetDto {
   @ApiProperty({ description: 'Pet DID' })
@@ -32,10 +33,15 @@ export class RegisterPetDto {
   @IsOptional()
   weight?: number;
 
-  @ApiProperty({ description: 'Gender', required: false })
-  @IsString()
+  @ApiProperty({
+    description: 'Pet gender: MALE (Male) or FEMALE (Female)',
+    required: false,
+    enum: Gender,
+    example: Gender.MALE
+  })
   @IsOptional()
-  gender?: string;
+  @IsEnum(Gender, { message: '반려동물 성별은 MALE(수컷) 또는 FEMALE(암컷)이어야 합니다.' })
+  gender?: Gender;
 
   @ApiProperty({ description: 'Color', required: false })
   @IsString()

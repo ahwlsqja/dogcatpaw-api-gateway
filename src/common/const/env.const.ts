@@ -16,6 +16,9 @@ const rpcurl = 'RPC_URL'
 const keyofadmin = 'ADMIN_PRIVATE_KEY'
 const guardianregistryaddress = 'GUARDIAN_REGISTRY_ADDRESS'
 const springurl = 'SPRING_SERVER_URL'
+const mlServiceUrl = 'ML_SERVICE_URL'
+const corsOrigin = 'CORS_ORIGIN'
+const corsCredentials = 'CORS_CREDENTIALS'
 
 
 export const envVariableKeys = {
@@ -36,5 +39,8 @@ export const envVariableKeys = {
     rpcurl,
     keyofadmin,
     guardianregistryaddress,
-    springurl
+    springurl,
+    mlServiceUrl,
+    corsOrigin,
+    corsCredentials
 }

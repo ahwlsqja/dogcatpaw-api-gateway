@@ -1,0 +1,94 @@
+// proto/faucet.proto
+syntax = "proto3";
+
+package faucet;
+
+service FaucetService {
+  rpc RequestFunds (RequestFundsRequest) returns (RequestFundsResponse);
+  rpc GetFaucetBalance (GetFaucetBalanceRequest) returns (GetFaucetBalanceResponse);
+  rpc GetFaucetHistory (GetFaucetHistoryRequest) returns (GetFaucetHistoryResponse);
+  rpc HealthCheck (HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message RequestFundsRequest {
+  string walletAddress = 1;
+  string amount = 2; // Optional: default 100 ETH
+}
+
+message RequestFundsData {
+  string transactionHash = 1;
+  string walletAddress = 2;
+  string amount = 3;
+  string timestamp = 4;
+}
+
+message RequestFundsResponse {
+  bool success = 1;
+  RequestFundsData data = 2;
+  string errorCode = 3;
+  string errorMessage = 4;
+  bool retryable = 5;
+  string timestamp = 6;
+  string message = 7;
+}
+
+message GetFaucetBalanceRequest {
+  string walletAddress = 1; // Optional: check specific address, or faucet address if empty
+}
+
+message GetFaucetBalanceData {
+  string balance = 1;
+  string address = 2;
+}
+
+message GetFaucetBalanceResponse {
+  bool success = 1;
+  GetFaucetBalanceData data = 2;
+  string errorCode = 3;
+  string errorMessage = 4;
+  bool retryable = 5;
+  string timestamp = 6;
+}
+
+message GetFaucetHistoryRequest {
+  string walletAddress = 1;
+  int32 limit = 2; // Optional: default 10
+}
+
+message FaucetTransaction {
+  string transactionHash = 1;
+  string toAddress = 2;
+  string amount = 3;
+  string timestamp = 4;
+  string status = 5;
+}
+
+message GetFaucetHistoryData {
+  repeated FaucetTransaction transactions = 1;
+}
+
+message GetFaucetHistoryResponse {
+  bool success = 1;
+  GetFaucetHistoryData data = 2;
+  string errorCode = 3;
+  string errorMessage = 4;
+  bool retryable = 5;
+  string timestamp = 6;
+}
+
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+    SERVICE_UNKNOWN = 3;
+  }
+  ServingStatus status = 1;
+  string message = 2;
+  string timestamp = 3;
+  string version = 4;
+}

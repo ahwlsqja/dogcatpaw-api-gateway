@@ -8,9 +8,10 @@ import { BlockchainModule } from 'src/blockchain/blockchain.module';
 import { CommonModule } from 'src/common/common.module';
 import { SpringModule } from 'src/spring/spring.module';
 import { IndexerModule } from 'src/indexer/indexer.module';
+import { ChatModule } from 'src/chat/chat.module';
 
 @Module({
-  imports: [VcModule, NoseEmbedderModule, GuardianModule, BlockchainModule, CommonModule, SpringModule, IndexerModule],
+  imports: [VcModule, NoseEmbedderModule, GuardianModule, BlockchainModule, CommonModule, SpringModule, IndexerModule, ChatModule],
   controllers: [PetController],
   providers: [PetService],
   exports: [PetService],

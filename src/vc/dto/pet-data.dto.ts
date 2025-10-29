@@ -37,9 +37,9 @@ export class PetDataDto {
   weight?: number;
 
   @ApiProperty({
-    description: '반려동물 성별',
+    description: '반려동물 성별 (MALE: 수컷, FEMALE: 암컷)',
     enum: Gender,
-    example: Gender.FAMALE
+    example: Gender.MALE
   })
   @IsOptional()
   @IsEnum(Gender, { message: '성별은 유효한 성별이어야 합니다.' })

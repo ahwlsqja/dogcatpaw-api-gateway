@@ -91,14 +91,14 @@ export class VcService {
     const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
     const signingData = `${encodedHeader}.${encodedPayload}`;
 
-    const messageHash = ethers.keccak256(ethers.toUtf8Bytes(signingData));
-    const recoveredAddress = ethers.verifyMessage(messageHash, signature);
+    // ethers.verifyMessage already hashes with Ethereum prefix internally
+    // So we pass signingData directly, not the hash
+    const recoveredAddress = ethers.verifyMessage(signingData, signature);
 
     if (recoveredAddress.toLowerCase() !== guardianAddress.toLowerCase()) {
       console.error('❌ VC Signature Verification Failed:');
       console.error(`  Expected: ${guardianAddress}`);
       console.error(`  Recovered: ${recoveredAddress}`);
-      console.error(`  Message Hash: ${messageHash}`);
       console.error(`  Signing Data: ${signingData.substring(0, 100)}...`);
       console.error(`  Signature: ${signature.substring(0, 20)}...`);
       return { success: false, errorMessage: 'Invalid signature' };
@@ -213,12 +213,13 @@ export class VcService {
     newGuardian: string;
     signature: string;
     message: any;
+    vcSignedData: string;
     petDID: string;
     petData: any;
   }) {
-    const { newGuardian, signature, message, petDID, petData } = params;
+    const { newGuardian, signature, message, vcSignedData, petDID, petData } = params;
 
-    // JWT payload 재구성 (서명 검증용)
+    // JWT payload (from prepare-transfer response)
     const header = {
       alg: 'ES256K-R',
       typ: 'JWT',
@@ -226,13 +227,10 @@ export class VcService {
 
     const payload = message; // prepareTransferVCSigning에서 전달한 payload 사용
 
-    // JWT 표준 서명 검증
-    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
-    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
-    const signingData = `${encodedHeader}.${encodedPayload}`;
+    // Use the exact signingData from prepare-transfer (no re-calculation!)
+    const signingData = vcSignedData;
 
-    const messageHash = ethers.keccak256(ethers.toUtf8Bytes(signingData));
-    const recoveredAddress = ethers.verifyMessage(messageHash, signature);
+    const recoveredAddress = ethers.verifyMessage(signingData, signature);
 
     if (recoveredAddress.toLowerCase() !== newGuardian.toLowerCase()) {
       console.error('❌ Transfer VC Signature Verification Failed:');

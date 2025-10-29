@@ -1,11 +1,12 @@
 // api-gateway/src/spring/spring.controller.ts
-import { Controller, Post, Get, Body, Param, UseGuards, Req, Query, ParseIntPipe } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, UseGuards, Req, Query, ParseIntPipe, Delete, Patch, HttpException, HttpStatus, Catch, ExceptionFilter, ArgumentsHost } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery, ApiParam, ApiResponse } from '@nestjs/swagger';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { SpringService } from './spring.service';
 import { SpringProxyService } from './spring.proxy.service';
 import { VcProxyService } from '../vc/vc.proxy.service';
 import { SpringAuthGuard } from '../auth/guard/spring-auth-guard';
+import { SpringErrorCode } from 'src/common/const/spring-error-codes';
 
 // Import DTOs
 import { CreateAdoptionPostDto } from './dto/adoption.dto';
@@ -234,38 +235,103 @@ This endpoint returns complete adoption post details including pet information, 
 **Example Response:**
 \`\`\`json
 {
+  "isSuccess": true,
+  "status": "200 OK",
+  "code": "COMMON200",
+  "message": "성공입니다",
   "result": {
-    "adoptId": 123,
-    "petId": 12345,
-    "petName": "바둑이",
-    "species": "DOG",
-    "breed": "Golden Retriever",
-    "age": 3,
-    "gender": "M",
     "title": "사랑스러운 골든 리트리버 입양하세요!",
     "content": "건강하고 활발한 골든 리트리버입니다...",
-    "images": ["photo1.jpg", "photo2.jpg"],
-    "region": "서울",
+    "images": "https://kr.object.ncloudstorage.com/dogcatpaw-backend/adoption/photo1.jpg,photo2.jpg",
+    "did": "did:ethr:besu:0x1234567890abcdef",
+    "petProfile": "https://kr.object.ncloudstorage.com/dogcatpaw-backend/pet/profile.jpg",
+    "petName": "바둑이",
+    "old": 3,
+    "weight": 25.5,
+    "color": "골든",
+    "specifics": "활발하고 사람을 좋아함",
+    "gender": "MALE",
+    "breed": "GOLDEN_RETRIEVER",
+    "region": "SEOUL",
     "district": "강남구",
     "shelterName": "서울 유기견 보호소",
-    "contact": "010-1234-5678",
     "deadline": "2025-12-31",
-    "status": "OPEN",
-    "guardianAddress": "0xe9ebc691ccfb15cb4bf31af83c624b7020f0d2c0",
-    "guardianName": "홍길동",
-    "viewCount": 150,
-    "createdAt": "2025-10-20T10:00:00Z"
+    "status": "ACTIVE",
+    "neutral": true
   }
 }
 \`\`\`
+
+**Returned Fields:**
+- \`title\`: Adoption post title
+- \`content\`: Post content/description
+- \`images\`: Comma-separated image URLs
+- \`did\`: Pet DID (Decentralized Identifier)
+- \`petProfile\`: Pet profile image URL
+- \`petName\`: Pet's name
+- \`old\`: Pet's age in years
+- \`weight\`: Pet's weight in kg
+- \`color\`: Pet's color/fur color
+- \`specifics\`: Special characteristics or personality traits
+- \`gender\`: Pet's gender (MALE, FEMALE)
+- \`breed\`: Pet's breed
+- \`region\`: Region/Province
+- \`district\`: District/City
+- \`shelterName\`: Shelter or organization name
+- \`deadline\`: Adoption deadline (YYYY-MM-DD)
+- \`status\`: Post status (ACTIVE, CLOSED, PENDING)
+- \`neutral\`: Whether pet is neutered/spayed (true/false)
 
 **No Authentication Required:**
 - Public endpoint - anyone can view adoption post details
     `,
   })
   @ApiParam({ name: 'adoptId', required: true, type: Number, description: 'Adoption post ID to retrieve details for' })
-  @ApiResponse({ status: 200, description: 'Adoption post details retrieved successfully' })
-  @ApiResponse({ status: 404, description: 'Not Found - Adoption post does not exist' })
+  @ApiResponse({
+    status: 200,
+    description: 'Adoption post details retrieved successfully',
+    schema: {
+      example: {
+        isSuccess: true,
+        status: "200 OK",
+        code: "COMMON200",
+        message: "성공입니다",
+        result: {
+          title: "사랑스러운 골든 리트리버 입양하세요!",
+          content: "건강하고 활발한 골든 리트리버입니다...",
+          images: "https://kr.object.ncloudstorage.com/dogcatpaw-backend/adoption/photo1.jpg,photo2.jpg",
+          did: "did:ethr:besu:0x1234567890abcdef",
+          petProfile: "https://kr.object.ncloudstorage.com/dogcatpaw-backend/pet/profile.jpg",
+          petName: "바둑이",
+          old: 3,
+          weight: 25.5,
+          color: "골든",
+          specifics: "활발하고 사람을 좋아함",
+          gender: "MALE",
+          breed: "GOLDEN_RETRIEVER",
+          region: "SEOUL",
+          district: "강남구",
+          shelterName: "서울 유기견 보호소",
+          deadline: "2025-12-31",
+          status: "ACTIVE",
+          neutral: true
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Not Found - Adoption post does not exist',
+    schema: {
+      example: {
+        isSuccess: false,
+        status: "404 NOT_FOUND",
+        code: "ADOPTION404",
+        message: "해당되는 입양 공고가 없습니다.",
+        result: null
+      }
+    }
+  })
   async getAdoptionDetail(@Param('adoptId', ParseIntPipe) adoptId: number) {
     return this.springProxyService.getAdoptionDetail(adoptId);
   }
@@ -407,7 +473,121 @@ const adoptionResponse = await fetch('/api/adoption/post', {
     return this.springProxyService.createAdoptionPost(dto, walletAddress);
   }
 
-  @Post('adoption/:adoptionId/complete')
+  @Patch('adoption/:adoptionId')
+  @UseGuards(SpringAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Update Adoption Post',
+    description: `
+**Update an existing adoption post**
+
+This endpoint allows guardians to modify their adoption posts after creation.
+
+**Prerequisites:**
+1. Must be the adoption post creator
+2. Adoption status must be "ACTIVE" (cannot edit ADOPTING or ADOPTED posts)
+3. Pet must still be owned by the guardian
+4. Images must be uploaded to S3 first (POST /common) if changing images
+
+**Complete Update Flow:**
+\`\`\`javascript
+// 1. (Optional) Upload new images to S3
+const imageResponse = await fetch('/common', { method: 'POST' });
+const { url: uploadUrl, filename } = await imageResponse.json();
+await fetch(uploadUrl, { method: 'PUT', body: imageFile });
+
+// 2. Update adoption post
+const updateResponse = await fetch('/api/adoption/123', {
+  method: 'PATCH',
+  headers: {
+    'Authorization': 'Bearer ' + accessToken,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    petId: 12345,  // Must match original pet
+    title: '수정된 제목 - 사랑스러운 골든 리트리버',
+    images: 'new-photo-1.jpg,new-photo-2.jpg',
+    content: '수정된 내용...',
+    region: '서울',
+    district: '강남구',
+    shelterName: '서울 유기견 보호소',
+    contact: '010-1234-5678',
+    deadline: '2025-12-31',
+    status: 'ACTIVE'
+  })
+});
+\`\`\`
+
+**Editable Fields:**
+- \`title\`: Post title (5-100 characters)
+- \`images\`: Comma-separated S3 filenames
+- \`content\`: Post description
+- \`region\`, \`district\`: Location
+- \`shelterName\`: Shelter name (for ADMIN role)
+- \`contact\`: Contact information
+- \`deadline\`: Adoption deadline
+- \`status\`: Must be "ACTIVE"
+
+**Non-Editable Fields:**
+- \`petId\`: Cannot change to different pet
+- Adoption post ID (in URL)
+- Creation date and author
+
+**Restrictions:**
+- Can only edit your own posts
+- Cannot edit if adoption is in progress (ADOPTING status)
+- Cannot edit if adoption is completed (ADOPTED status)
+- Pet must still belong to you
+
+**Use Cases:**
+- Update pet information or photos
+- Correct typos or errors
+- Change contact information
+- Update deadline
+- Add additional details
+
+**Example Response:**
+\`\`\`javascript
+{
+  "result": {
+    "success": true,
+    "adoptionId": 123,
+    "message": "입양 공고가 수정되었습니다."
+  }
+}
+\`\`\`
+
+**Error Cases:**
+- Not post owner → COMMON401 (Unauthorized)
+- Adoption in progress → ADOPTION400 (Cannot edit)
+- Pet not yours → PET_404 (Not your pet)
+- Post not found → ADOPTION404
+
+**Important Notes:**
+- All fields must be provided (same as creation)
+- Previous images will be replaced by new images
+- Changes are immediate and visible to all users
+- Edit history is not tracked (consider adding audit log)
+
+**Authorization:**
+- Requires valid JWT access token
+- Must be the adoption post creator
+    `,
+  })
+  @ApiParam({ name: 'adoptionId', type: Number, description: 'Adoption post ID to update' })
+  @ApiResponse({ status: 200, description: 'Adoption post updated successfully' })
+  @ApiResponse({ status: 400, description: 'Bad Request - Cannot edit post (adoption in progress or completed)' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Only post creator can edit' })
+  @ApiResponse({ status: 404, description: 'Not Found - Adoption post or pet does not exist' })
+  async updateAdoptionPost(
+    @Param('adoptionId', ParseIntPipe) adoptionId: number,
+    @Body() dto: CreateAdoptionPostDto,
+    @WalletAddress() walletAddress: string
+  ) {
+    return this.springProxyService.updateAdoptionPost(adoptionId, dto, walletAddress);
+  }
+
+  @Patch('adoption/:adoptionId/delegate')
   @UseGuards(SpringAuthGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({
@@ -647,8 +827,61 @@ View full story content, all images, and associated comments/likes.
   @ApiParam({ name: 'stories', type: Number, description: 'Daily story ID to retrieve' })
   @ApiResponse({ status: 200, description: 'Daily story retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Not Found - Story does not exist' })
-  async getDailyStory(@Param('stories', ParseIntPipe) storyId: number) {
-    return this.springProxyService.getDailyStory(storyId);
+  async getDailyStory(@Param('stories', ParseIntPipe) storyId: number, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.getDailyStory(storyId, walletAddress);
+  }
+
+  @Delete('story/daily/:storyId')
+  @UseGuards(SpringAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Delete Daily Story',
+    description: `
+**Delete a daily story you previously posted**
+
+This endpoint allows guardians to delete their own daily story posts.
+
+**Authorization:**
+- Only the story author can delete their own stories
+- Returns 401 if called by non-author
+
+**Use Cases:**
+- Remove outdated or incorrect stories
+- Delete posts with errors or typos
+- Clean up personal feed
+
+**Important Notes:**
+- Deletion is permanent and cannot be undone
+- Associated likes and comments are also deleted
+- Pet statistics (story count) will be updated
+
+**Example Request:**
+\`\`\`javascript
+await fetch('/api/story/daily/456', {
+  method: 'DELETE',
+  headers: {
+    'Authorization': 'Bearer ' + accessToken
+  }
+});
+\`\`\`
+
+**Response:**
+\`\`\`javascript
+{
+  "result": {
+    "success": true,
+    "message": "일상 일지가 삭제되었습니다."
+  }
+}
+\`\`\`
+    `,
+  })
+  @ApiParam({ name: 'storyId', type: Number, description: 'Daily story ID to delete' })
+  @ApiResponse({ status: 200, description: 'Story deleted successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Only author can delete story' })
+  @ApiResponse({ status: 404, description: 'Not Found - Story does not exist' })
+  async deleteDailyStory(@Param('storyId', ParseIntPipe) storyId: number, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.deleteDailyStory(storyId, walletAddress);
   }
 
   // ========== Adoption Review Story API ==========
@@ -719,6 +952,7 @@ const reviewResponse = await fetch('/api/story/review', {
   @ApiResponse({ status: 400, description: 'Bad Request - Invalid pet ID or missing required fields' })
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid or expired token' })
   async createReviewStory(@Body() dto: CreateReviewStoryDto, @WalletAddress() walletAddress: string) {
+    console.log(dto)
     return this.springProxyService.createReviewStory(dto, walletAddress);
   }
 
@@ -766,10 +1000,11 @@ Browse all adoption review stories shared by guardians who have adopted pets, so
   @ApiQuery({ name: 'size', required: false, type: Number, description: 'Number of reviews per page (default: 10, max: 50)' })
   @ApiResponse({ status: 200, description: 'Adoption reviews retrieved successfully' })
   async getReviewStories(
+    @WalletAddress() walletAddress: string,
     @Query('cursorId') cursorId?: number,
     @Query('size') size?: number,
   ) {
-    return this.springProxyService.getReviewStories({ cursorId, size });
+    return this.springProxyService.getReviewStories({ cursorId, size }, walletAddress);
   }
 
   @Get('story/review/:reviews')
@@ -804,8 +1039,62 @@ View full adoption story, all photos, and journey details.
   @ApiParam({ name: 'reviews', type: Number, description: 'Adoption review ID to retrieve' })
   @ApiResponse({ status: 200, description: 'Adoption review retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Not Found - Review does not exist' })
-  async getReviewStory(@Param('reviews', ParseIntPipe) reviewId: number) {
-    return this.springProxyService.getReviewStory(reviewId);
+  async getReviewStory(@Param('reviews', ParseIntPipe) reviewId: number, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.getReviewStory(reviewId, walletAddress);
+  }
+
+  @Delete('story/review/:storyId')
+  @UseGuards(SpringAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Delete Adoption Review Story',
+    description: `
+**Delete an adoption review you previously posted**
+
+This endpoint allows guardians to delete their own adoption review posts.
+
+**Authorization:**
+- Only the review author can delete their own reviews
+- Returns 401 if called by non-author
+
+**Use Cases:**
+- Remove outdated adoption reviews
+- Delete posts with errors or incorrect information
+- Clean up personal adoption stories
+
+**Important Notes:**
+- Deletion is permanent and cannot be undone
+- Associated likes and comments are also deleted
+- Adoption statistics will be updated
+- The adoption record itself remains (for transparency)
+
+**Example Request:**
+\`\`\`javascript
+await fetch('/api/story/review/789', {
+  method: 'DELETE',
+  headers: {
+    'Authorization': 'Bearer ' + accessToken
+  }
+});
+\`\`\`
+
+**Response:**
+\`\`\`javascript
+{
+  "result": {
+    "success": true,
+    "message": "입양 후기가 삭제되었습니다."
+  }
+}
+\`\`\`
+    `,
+  })
+  @ApiParam({ name: 'storyId', type: Number, description: 'Adoption review ID to delete' })
+  @ApiResponse({ status: 200, description: 'Review deleted successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Only author can delete review' })
+  @ApiResponse({ status: 404, description: 'Not Found - Review does not exist' })
+  async deleteReviewStory(@Param('storyId', ParseIntPipe) storyId: number, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.deleteReviewStory(storyId, walletAddress);
   }
 
   // ========== Like and Comment API ==========
@@ -1004,7 +1293,66 @@ const response = await fetch('/api/comment', {
   @ApiResponse({ status: 401, description: 'Unauthorized - Login required' })
   @ApiResponse({ status: 404, description: 'Not Found - Story does not exist' })
   async writeComment(@Body() dto: WriteCommentDto, @WalletAddress() walletAddress: string) {
+    console.log(dto)
     return this.springProxyService.writeComment(dto, walletAddress);
+  }
+
+  @Delete('comment/:commentId')
+  @UseGuards(SpringAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Delete Comment',
+    description: `
+**Delete a comment you previously posted**
+
+This endpoint allows users to delete their own comments on daily stories or adoption reviews.
+
+**Authorization:**
+- Only the comment author can delete their own comments
+- Returns 401 if called by non-author
+
+**Use Cases:**
+- Remove incorrect or inappropriate comments
+- Delete comments with typos or errors
+- Clean up conversation threads
+
+**Important Notes:**
+- Deletion is permanent and cannot be undone
+- Comment count on story will be decremented
+- Replies to this comment (if nested comments supported) may also be removed
+
+**Example Request:**
+\`\`\`javascript
+await fetch('/api/comment/999', {
+  method: 'DELETE',
+  headers: {
+    'Authorization': 'Bearer ' + accessToken
+  }
+});
+\`\`\`
+
+**Response:**
+\`\`\`javascript
+{
+  "result": {
+    "success": true,
+    "message": "댓글이 삭제되었습니다."
+  }
+}
+\`\`\`
+
+**Integration:**
+- After deleting, refresh comment list with GET /api/comment?storyId=X
+- Update UI to remove deleted comment from display
+- Update comment count badge
+    `,
+  })
+  @ApiParam({ name: 'commentId', type: Number, description: 'Comment ID to delete' })
+  @ApiResponse({ status: 200, description: 'Comment deleted successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Only author can delete comment' })
+  @ApiResponse({ status: 404, description: 'Not Found - Comment does not exist' })
+  async deleteComment(@Param('commentId', ParseIntPipe) commentId: number, @WalletAddress() walletAddress: string) {
+    return this.springProxyService.deleteComment(commentId, walletAddress);
   }
 
   // ========== Chat Room API ==========
@@ -1176,36 +1524,65 @@ socket.emit('sendMessage', { roomId, message: 'Hello!' });
   }
 
   @Get('chat/room/list')
+  @UseGuards(SpringAuthGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({
-    summary: 'Get All Chat Rooms',
+    summary: 'Get My Chat Rooms',
     description: `
-**Retrieve list of all available chat rooms**
+**Retrieve list of chat rooms for the authenticated user**
 
-This endpoint returns all chat rooms in the system.
+This endpoint returns all chat rooms where the authenticated user is a participant.
 
 **Use Cases:**
-- Admin dashboard to view all conversations
-- System monitoring and moderation
-- Analytics on adoption communication patterns
+- Display user's chat room list
+- Show active conversations
+- Display unread message counts
 
-**Note:**
-- This endpoint may return ALL rooms in the system
-- For user-specific rooms, consider filtering on the frontend
-- Consider pagination for large datasets
-
-**Response Includes:**
+**Returned Information:**
 - Room ID
 - Room name
 - Participants
-- Adoption post information
+- Associated adoption post information
+- Last message preview
 - Last message timestamp
-- Unread message count (if applicable)
+- Unread message count
+
+**Authentication Required:**
+- Requires valid JWT access token
+- Returns only rooms where user is a participant
     `,
   })
-  @ApiResponse({ status: 200, description: 'Chat room list retrieved successfully' })
-  async getChatRoomList() {
-    return this.springProxyService.getChatRoomList();
+  @ApiResponse({
+    status: 200,
+    description: 'Chat room list retrieved successfully (returns empty array if no rooms)',
+    schema: {
+      example: {
+        isSuccess: true,
+        status: "200 OK",
+        code: "COMMON200",
+        message: "성공입니다",
+        result: []  // Empty array if no rooms
+      }
+    }
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Invalid or expired token' })
+  async getChatRoomList(@WalletAddress() walletAddress: string) {
+    try {
+      return await this.springProxyService.getChatRoomList(walletAddress);
+    } catch (error) {
+      // 404 (채팅방 없음) → 빈 배열 반환
+      if (error.status === 404 || error.response?.status === 404) {
+        return {
+          isSuccess: true,
+          status: "200 OK",
+          code: "COMMON200",
+          message: "채팅방이 없습니다",
+          result: []
+        };
+      }
+      // 다른 에러는 그대로 throw
+      throw error;
+    }
   }
 
   @Get('chat/room/card')
@@ -1243,15 +1620,41 @@ This endpoint retrieves condensed information about a chat room, suitable for di
     description: 'Chat room ID to get card information for',
     example: 1,
   })
-  @ApiResponse({ status: 200, description: 'Chat room card retrieved successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Chat room card retrieved successfully (returns null if not found)',
+    schema: {
+      example: {
+        isSuccess: true,
+        status: "200 OK",
+        code: "COMMON200",
+        message: "성공입니다",
+        result: null  // null if room not found
+      }
+    }
+  })
   @ApiResponse({ status: 403, description: 'Forbidden - User is not a participant in this room' })
-  @ApiResponse({ status: 404, description: 'Not Found - Chat room does not exist' })
   async getChatRoomCard(
     @Query('roomId', ParseIntPipe) roomId: number,
     @Req() req: Request
   ) {
     const walletAddress = req.user?.address;
-    return this.springProxyService.getChatRoomCard(roomId, walletAddress);
+    try {
+      return await this.springProxyService.getChatRoomCard(roomId, walletAddress);
+    } catch (error) {
+      // 404 (채팅방 없음) → null 반환
+      if (error.status === 404 || error.response?.status === 404) {
+        return {
+          isSuccess: true,
+          status: "200 OK",
+          code: "COMMON200",
+          message: "채팅방을 찾을 수 없습니다",
+          result: null
+        };
+      }
+      // 다른 에러는 그대로 throw (403 등)
+      throw error;
+    }
   }
 
   @Post('chat/:roomId/enter')
@@ -1422,12 +1825,45 @@ ORDER BY created_at ASC
     }
   })
   @ApiResponse({ status: 403, description: 'Forbidden - User is not a participant in this room' })
-  @ApiResponse({ status: 404, description: 'Not Found - Chat room does not exist' })
+  @ApiResponse({
+    status: 200,
+    description: 'Entered room successfully (returns empty messages if no messages yet)',
+    schema: {
+      example: {
+        isSuccess: true,
+        status: "200 OK",
+        code: "COMMON200",
+        message: "성공입니다",
+        result: {
+          roomId: 123,
+          messages: []  // Empty array if no messages
+        }
+      }
+    }
+  })
   async enterChatRoom(
     @Param('roomId', ParseIntPipe) roomId: number,
     @WalletAddress() walletAddress: string
   ) {
-    return this.springProxyService.enterChatRoom(roomId, walletAddress);
+    try {
+      return await this.springProxyService.enterChatRoom(roomId, walletAddress);
+    } catch (error) {
+      // 404 (메시지 없음) → 빈 메시지 배열 반환
+      if (error.status === 404 || error.response?.status === 404) {
+        return {
+          isSuccess: true,
+          status: "200 OK",
+          code: "COMMON200",
+          message: "채팅방에 메시지가 없습니다",
+          result: {
+            roomId,
+            messages: []
+          }
+        };
+      }
+      // 다른 에러는 그대로 throw (403 등)
+      throw error;
+    }
   }
 
   @Get('chat/room/:roomId/adoption')
@@ -1470,15 +1906,41 @@ Every chat room is linked to a specific adoption post. This endpoint retrieves t
     description: 'Chat room ID to get adoption info for',
     example: 1,
   })
-  @ApiResponse({ status: 200, description: 'Adoption info retrieved successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Adoption info retrieved successfully (returns null if not found)',
+    schema: {
+      example: {
+        isSuccess: true,
+        status: "200 OK",
+        code: "COMMON200",
+        message: "성공입니다",
+        result: null  // null if not found
+      }
+    }
+  })
   @ApiResponse({ status: 403, description: 'Forbidden - User is not a participant in this room' })
-  @ApiResponse({ status: 404, description: 'Not Found - Chat room or adoption post does not exist' })
   async getChatAdoptionInfo(
     @Param('roomId', ParseIntPipe) roomId: number,
     @Req() req: Request
   ) {
     const walletAddress = req.user?.address;
-    return this.springProxyService.getChatAdoptionInfo(roomId, walletAddress);
+    try {
+      return await this.springProxyService.getChatAdoptionInfo(roomId, walletAddress);
+    } catch (error) {
+      // 404 (입양 정보 없음) → null 반환
+      if (error.status === 404 || error.response?.status === 404) {
+        return {
+          isSuccess: true,
+          status: "200 OK",
+          code: "COMMON200",
+          message: "입양 정보를 찾을 수 없습니다",
+          result: null
+        };
+      }
+      // 다른 에러는 그대로 throw (403 등)
+      throw error;
+    }
   }
 
   // ========== Donation Management API ==========
@@ -1812,6 +2274,7 @@ const donationResponse = await fetch('/api/donations', {
   @ApiResponse({ status: 401, description: 'Unauthorized - Login required' })
   @ApiResponse({ status: 404, description: 'Not Found - Donation campaign does not exist' })
   async makeDonation(@Body() dto: MakeDonationDto, @WalletAddress() walletAddress: string) {
+    console.log(dto)
     return this.springProxyService.makeDonation(dto, walletAddress);
   }
 
@@ -2054,6 +2517,7 @@ await fetch('/api/payment/approve', {
   @ApiResponse({ status: 400, description: 'Bad Request - Invalid item ID' })
   @ApiResponse({ status: 401, description: 'Unauthorized - Login required' })
   async preparePayment(@Body() dto: PreparePaymentDto, @WalletAddress() walletAddress: string) {
+    console.log(dto)
     return this.springProxyService.preparePayment(dto, walletAddress);
   }
 
@@ -2164,6 +2628,8 @@ console.log(\`New balance: \${result.newBalance} bones\`);
   @ApiResponse({ status: 401, description: 'Unauthorized - Login required' })
   @ApiResponse({ status: 404, description: 'Not Found - Order does not exist' })
   async approvePayment(@Body() dto: ApprovePaymentDto, @WalletAddress() walletAddress: string) {
+    console.log('[approvePayment] Request data:', JSON.stringify(dto, null, 2));
+    console.log('[approvePayment] Wallet address:', walletAddress);
     return this.springProxyService.approvePayment(dto, walletAddress);
   }
 
@@ -2310,5 +2776,138 @@ const page2 = await fetch(\`/api/admin?cursor=\${nextCursor}&size=20\`, {
     @Query('size') size?: number,
   ) {
     return this.springProxyService.getAdminMembers(cursor, size, walletAddress);
+  }
+
+  // ========== Shelter API ==========
+
+  @Get('shelter')
+  @ApiOperation({
+    summary: 'Get Shelter List',
+    description: `
+**Retrieve list of animal shelters and rescue organizations**
+
+This endpoint returns information about shelters, rescue organizations, and animal protection centers across Korea.
+
+**Filtering Options:**
+- \`region\`: Province/Metropolitan city (enum values like SEOUL, BUSAN, GYEONGGI, etc.)
+- \`district\`: City/District within region (e.g., "강남구", "수원시")
+- \`keyword\`: Search by shelter name
+
+**Pagination:**
+- Uses cursor-based pagination
+- \`cursor\`: Last shelter ID from previous page
+- \`size\`: Shelters per page (default: 8, max: 100)
+
+**Region Enum Values:**
+- SEOUL: 서울특별시
+- BUSAN: 부산광역시
+- DAEGU: 대구광역시
+- INCHEON: 인천광역시
+- GWANGJU: 광주광역시
+- DAEJEON: 대전광역시
+- ULSAN: 울산광역시
+- SEJONG: 세종특별자치시
+- GYEONGGI: 경기도
+- GANGWON: 강원도
+- CHUNGBUK: 충청북도
+- CHUNGNAM: 충청남도
+- JEONBUK: 전라북도
+- JEONNAM: 전라남도
+- GYEONGBUK: 경상북도
+- GYEONGNAM: 경상남도
+- JEJU: 제주특별자치도
+
+**Example Usage:**
+\`\`\`javascript
+// Get shelters in Seoul
+const seoulShelters = await fetch('/api/shelter?region=SEOUL&size=10');
+
+// Search by shelter name
+const searchResult = await fetch('/api/shelter?keyword=사랑&size=10');
+
+// Get shelters in specific district
+const gangnamShelters = await fetch('/api/shelter?region=SEOUL&district=강남구');
+
+// Pagination - next page
+const nextPage = await fetch('/api/shelter?cursor=123&size=10');
+\`\`\`
+
+**Returned Shelter Information:**
+- Shelter ID
+- Shelter name
+- Region and district
+- Address and contact information
+- Operating hours
+- Website/social media links (if available)
+- Adoption process information
+- Number of animals currently available
+
+**Example Response:**
+\`\`\`json
+{
+  "result": {
+    "shelters": [
+      {
+        "shelterId": 1,
+        "name": "서울 유기견 보호소",
+        "region": "SEOUL",
+        "district": "강남구",
+        "address": "서울시 강남구 ...",
+        "phone": "02-123-4567",
+        "website": "https://example.com",
+        "operatingHours": "09:00-18:00",
+        "availableAnimals": 45
+      },
+      ...
+    ],
+    "nextCursor": 124,
+    "hasMore": true
+  }
+}
+\`\`\`
+
+**Use Cases:**
+- Display shelter directory for adopters
+- Find nearby shelters by location
+- Search for specific shelter
+- Integrate with adoption posts (shelterName field)
+- Provide shelter information for donations
+
+**Integration with Adoption:**
+- Shelters listed here can be referenced in adoption posts
+- ADMIN role guardians represent shelters
+- Shelter name in adoption post links to shelter profile
+
+**No Authentication Required:**
+- Public endpoint - anyone can browse shelters
+- Encourages adoption and volunteering
+- Helps connect pets with potential adopters
+
+**Future Enhancements:**
+- Geo-location based search
+- Filter by animal species/breed availability
+- Shelter ratings and reviews
+- Volunteer opportunities
+    `,
+  })
+  @ApiQuery({ name: 'cursor', required: false, type: Number, description: 'Cursor for pagination (last shelter ID)' })
+  @ApiQuery({ name: 'size', required: false, type: Number, description: 'Number of shelters per page (default: 8, max: 100)' })
+  @ApiQuery({
+    name: 'region',
+    required: false,
+    enum: ['SEOUL', 'BUSAN', 'DAEGU', 'INCHEON', 'GWANGJU', 'DAEJEON', 'ULSAN', 'SEJONG', 'GYEONGGI', 'GANGWON', 'CHUNGBUK', 'CHUNGNAM', 'JEONBUK', 'JEONNAM', 'GYEONGBUK', 'GYEONGNAM', 'JEJU'],
+    description: 'Filter by region (province/metropolitan city)',
+  })
+  @ApiQuery({ name: 'district', required: false, type: String, description: 'Filter by district/city' })
+  @ApiQuery({ name: 'keyword', required: false, type: String, description: 'Search by shelter name' })
+  @ApiResponse({ status: 200, description: 'Shelter list retrieved successfully' })
+  async getShelters(
+    @Query('cursor') cursor?: number,
+    @Query('size') size?: number,
+    @Query('region') region?: string,
+    @Query('district') district?: string,
+    @Query('keyword') keyword?: string,
+  ) {
+    return this.springProxyService.getShelters({ cursor, size, region, district, keyword });
   }
 }

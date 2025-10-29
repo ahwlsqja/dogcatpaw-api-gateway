@@ -41,20 +41,47 @@ export class CommonService {
     }
 
     // 저장된 이미지를 nose-print-photo 폴더로 이동시키는 함수 
+    /**
+     * Normalize S3 filename by removing bucket name and temp/ prefix
+     * Handles cases where frontend sends full path instead of just filename
+     */
+    private normalizeFileName(fileName: string, bucketName: string): string {
+        let normalized = fileName;
+
+        // Remove bucket name prefix if exists (e.g., "dogcatpaw-backend/temp/file.jpg" -> "temp/file.jpg")
+        if (normalized.includes(`${bucketName}/`)) {
+            normalized = normalized.split(`${bucketName}/`).pop();
+        }
+
+        // Remove "temp/" prefix if exists (e.g., "temp/file.jpg" -> "file.jpg")
+        if (normalized.startsWith('temp/')) {
+            normalized = normalized.substring(5);
+        }
+
+        // Extract just the filename if full path was provided (e.g., "some/path/file.jpg" -> "file.jpg")
+        const fileNameOnly = normalized.split('/').pop();
+
+        return fileNameOnly;
+    }
+
     async saveNosePrintToPermanentStorage(fileName: string, petDID: string) {
         try {
             const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            const normalizedFileName = this.normalizeFileName(fileName, bucketName);
+
+            console.log(`[saveNosePrintToPermanentStorage] Original: ${fileName}, Normalized: ${normalizedFileName}`);
+
             await this.s3.copyObject({
                 Bucket: bucketName,
-                CopySource: `${bucketName}/temp/${fileName}`,
-                Key: `nose-print-photo/${petDID}/${fileName}`,
+                CopySource: `${bucketName}/temp/${normalizedFileName}`,
+                Key: `nose-print-photo/${petDID}/${normalizedFileName}`,
                 ACL: 'public-read',
             });
 
             await this.s3
                 .deleteObject({
                     Bucket: bucketName,
-                    Key: `temp/${fileName}`,
+                    Key: `temp/${normalizedFileName}`,
                 });
         } catch (e) {
             console.log(e);
@@ -63,21 +90,25 @@ export class CommonService {
     }
 
 
-    // 저장된 보호자 프로필 사진을 guardian 폴더로 이동시키는 함수 
+    // 저장된 보호자 프로필 사진을 guardian 폴더로 이동시키는 함수
     async saveGuardianToPermanentStorage(fileName: string) {
         try {
             const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            const normalizedFileName = this.normalizeFileName(fileName, bucketName);
+
+            console.log(`[saveGuardianToPermanentStorage] Original: ${fileName}, Normalized: ${normalizedFileName}`);
+
             await this.s3.copyObject({
                 Bucket: bucketName,
-                CopySource: `${bucketName}/temp/${fileName}`,
-                Key: `guardian/${fileName}`,
+                CopySource: `${bucketName}/temp/${normalizedFileName}`,
+                Key: `guardian/${normalizedFileName}`,
                 ACL: 'public-read',
             });
 
             await this.s3
                 .deleteObject({
                     Bucket: bucketName,
-                    Key: `temp/${fileName}`,
+                    Key: `temp/${normalizedFileName}`,
                 });
         } catch (e) {
             console.log(e);
@@ -85,21 +116,25 @@ export class CommonService {
         }
     }
 
-    // 저장된 펫 프로필 사진을 pet 폴더로 이동시키는 함수 
+    // 저장된 펫 프로필 사진을 pet 폴더로 이동시키는 함수
     async savePetToPermanentStorage(fileName: string) {
         try {
             const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            const normalizedFileName = this.normalizeFileName(fileName, bucketName);
+
+            console.log(`[savePetToPermanentStorage] Original: ${fileName}, Normalized: ${normalizedFileName}`);
+
             await this.s3.copyObject({
                 Bucket: bucketName,
-                CopySource: `${bucketName}/temp/${fileName}`,
-                Key: `pet/${fileName}`,
+                CopySource: `${bucketName}/temp/${normalizedFileName}`,
+                Key: `pet/${normalizedFileName}`,
                 ACL: 'public-read',
             });
 
             await this.s3
                 .deleteObject({
                     Bucket: bucketName,
-                    Key: `temp/${fileName}`,
+                    Key: `temp/${normalizedFileName}`,
                 });
         } catch (e) {
             console.log(e);
@@ -111,17 +146,21 @@ export class CommonService {
     async saveDiaryToPermanentStorage(fileName: string) {
         try {
             const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            const normalizedFileName = this.normalizeFileName(fileName, bucketName);
+
+            console.log(`[saveDiaryToPermanentStorage] Original: ${fileName}, Normalized: ${normalizedFileName}`);
+
             await this.s3.copyObject({
                 Bucket: bucketName,
-                CopySource: `${bucketName}/temp/${fileName}`,
-                Key: `diary/${fileName}`,
+                CopySource: `${bucketName}/temp/${normalizedFileName}`,
+                Key: `diary/${normalizedFileName}`,
                 ACL: 'public-read',
             });
 
             await this.s3
                 .deleteObject({
                     Bucket: bucketName,
-                    Key: `temp/${fileName}`,
+                    Key: `temp/${normalizedFileName}`,
                 });
         } catch (e) {
             console.log(e);
@@ -133,17 +172,21 @@ export class CommonService {
     async saveReviewToPermanentStorage(fileName: string) {
         try {
             const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            const normalizedFileName = this.normalizeFileName(fileName, bucketName);
+
+            console.log(`[saveReviewToPermanentStorage] Original: ${fileName}, Normalized: ${normalizedFileName}`);
+
             await this.s3.copyObject({
                 Bucket: bucketName,
-                CopySource: `${bucketName}/temp/${fileName}`,
-                Key: `review/${fileName}`,
+                CopySource: `${bucketName}/temp/${normalizedFileName}`,
+                Key: `review/${normalizedFileName}`,
                 ACL: 'public-read',
             });
 
             await this.s3
                 .deleteObject({
                     Bucket: bucketName,
-                    Key: `temp/${fileName}`,
+                    Key: `temp/${normalizedFileName}`,
                 });
         } catch (e) {
             console.log(e);
@@ -156,17 +199,21 @@ export class CommonService {
     async saveAdoptionToPermanentStorage(fileName: string) {
         try {
             const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            const normalizedFileName = this.normalizeFileName(fileName, bucketName);
+
+            console.log(`[saveAdoptionToPermanentStorage] Original: ${fileName}, Normalized: ${normalizedFileName}`);
+
             await this.s3.copyObject({
                 Bucket: bucketName,
-                CopySource: `${bucketName}/temp/${fileName}`,
-                Key: `adoption/${fileName}`,
+                CopySource: `${bucketName}/temp/${normalizedFileName}`,
+                Key: `adoption/${normalizedFileName}`,
                 ACL: 'public-read',
             });
 
             await this.s3
                 .deleteObject({
                     Bucket: bucketName,
-                    Key: `temp/${fileName}`,
+                    Key: `temp/${normalizedFileName}`,
                 });
         } catch (e) {
             console.log(e);
@@ -178,17 +225,21 @@ export class CommonService {
     async saveDonationToPermanentStorage(fileName: string) {
         try {
             const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            const normalizedFileName = this.normalizeFileName(fileName, bucketName);
+
+            console.log(`[saveDonationToPermanentStorage] Original: ${fileName}, Normalized: ${normalizedFileName}`);
+
             await this.s3.copyObject({
                 Bucket: bucketName,
-                CopySource: `${bucketName}/temp/${fileName}`,
-                Key: `donation/${fileName}`,
+                CopySource: `${bucketName}/temp/${normalizedFileName}`,
+                Key: `donation/${normalizedFileName}`,
                 ACL: 'public-read',
             });
 
             await this.s3
                 .deleteObject({
                     Bucket: bucketName,
-                    Key: `temp/${fileName}`,
+                    Key: `temp/${normalizedFileName}`,
                 });
         } catch (e) {
             console.log(e);
@@ -256,9 +307,13 @@ export class CommonService {
     async getFileFromTemp(fileName: string): Promise<Buffer> {
         try {
             const bucketName = this.configService.get<string>(envVariableKeys.awss3bucketname);
+            const normalizedFileName = this.normalizeFileName(fileName, bucketName);
+
+            console.log(`[getFileFromTemp] Original: ${fileName}, Normalized: ${normalizedFileName}`);
+
             const command = new GetObjectCommand({
                 Bucket: bucketName,
-                Key: `temp/${fileName}`
+                Key: `temp/${normalizedFileName}`
             });
 
             const result = await this.s3.send(command);

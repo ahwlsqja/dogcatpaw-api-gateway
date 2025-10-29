@@ -158,24 +158,103 @@ export class AuthService {
       };
 
       let signingData: string;
+      let recoveredAddress: string;
+
       if (signedData) {
         // Use the exact data that client signed
+        this.logger.debug(`Using signedData from client (length: ${signedData.length})`);
         signingData = signedData;
+
+        // Try multiple verification methods
+        this.logger.debug(`Trying different verification methods...`);
+
+        // Method 1: verifyMessage (adds Ethereum prefix)
+        const addr1 = ethers.verifyMessage(signingData, signature);
+        this.logger.debug(`Method 1 (verifyMessage): ${addr1}`);
+
+        // Method 2: Recover from hash (no prefix)
+        const messageHash = ethers.keccak256(ethers.toUtf8Bytes(signingData));
+        const addr2 = ethers.recoverAddress(messageHash, signature);
+        this.logger.debug(`Method 2 (recoverAddress from hash): ${addr2}`);
+
+        // Method 3: Recover with Ethereum signed message prefix manually
+        const prefixedHash = ethers.hashMessage(signingData);
+        const addr3 = ethers.recoverAddress(prefixedHash, signature);
+        this.logger.debug(`Method 3 (hashMessage + recoverAddress): ${addr3}`);
+
+        // Method 4: Try with array buffer
+        const messageBytes = ethers.toUtf8Bytes(signingData);
+        const addr4 = ethers.verifyMessage(messageBytes, signature);
+        this.logger.debug(`Method 4 (verifyMessage with bytes): ${addr4}`);
+
+        // Check which method matches
+        if (addr1.toLowerCase() === holder.toLowerCase()) {
+          this.logger.log(`✅ VP signature verified using method 1 (verifyMessage)`);
+          recoveredAddress = addr1;
+        } else if (addr2.toLowerCase() === holder.toLowerCase()) {
+          this.logger.log(`✅ VP signature verified using method 2 (raw hash)`);
+          recoveredAddress = addr2;
+        } else if (addr3.toLowerCase() === holder.toLowerCase()) {
+          this.logger.log(`✅ VP signature verified using method 3 (hashMessage)`);
+          recoveredAddress = addr3;
+        } else if (addr4.toLowerCase() === holder.toLowerCase()) {
+          this.logger.log(`✅ VP signature verified using method 4 (bytes)`);
+          recoveredAddress = addr4;
+        } else {
+          this.logger.error(`❌ All verification methods failed:`);
+          this.logger.error(`  Expected: ${holder}`);
+          this.logger.error(`  Method 1: ${addr1}`);
+          this.logger.error(`  Method 2: ${addr2}`);
+          this.logger.error(`  Method 3: ${addr3}`);
+          this.logger.error(`  Method 4: ${addr4}`);
+          this.logger.error(`Signed data (first 200): ${signingData.substring(0, 200)}`);
+          throw new Error('Invalid VP signature - all verification methods failed');
+        }
       } else {
-        // Fallback: reconstruct (might have JSON serialization differences)
+        // Fallback: Try raw hash recovery (client may have signed raw hash)
+        this.logger.warn(`No signedData provided, trying raw hash recovery`);
         const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
         const encodedPayload = Buffer.from(JSON.stringify(message)).toString('base64url');
         signingData = `${encodedHeader}.${encodedPayload}`;
-      }
 
-      const messageHash = ethers.keccak256(ethers.toUtf8Bytes(signingData));
-      const recoveredAddress = ethers.verifyMessage(messageHash, signature);
+        // Try method 1: verifyMessage (adds Ethereum prefix)
+        const addr1 = ethers.verifyMessage(signingData, signature);
+        this.logger.debug(`Method 1 (verifyMessage): ${addr1}`);
+
+        // Try method 2: Recover from hash (no prefix)
+        const messageHash = ethers.keccak256(ethers.toUtf8Bytes(signingData));
+        const addr2 = ethers.recoverAddress(messageHash, signature);
+        this.logger.debug(`Method 2 (recoverAddress from hash): ${addr2}`);
+
+        // Try method 3: Recover with Ethereum signed message prefix manually
+        const prefixedHash = ethers.hashMessage(signingData);
+        const addr3 = ethers.recoverAddress(prefixedHash, signature);
+        this.logger.debug(`Method 3 (hashMessage + recoverAddress): ${addr3}`);
+
+        // Check which method matches the holder
+        if (addr1.toLowerCase() === holder.toLowerCase()) {
+          this.logger.log(`VP signature verified using method 1 (verifyMessage)`);
+          recoveredAddress = addr1;
+        } else if (addr2.toLowerCase() === holder.toLowerCase()) {
+          this.logger.log(`VP signature verified using method 2 (raw hash)`);
+          recoveredAddress = addr2;
+        } else if (addr3.toLowerCase() === holder.toLowerCase()) {
+          this.logger.log(`VP signature verified using method 3 (hashMessage)`);
+          recoveredAddress = addr3;
+        } else {
+          this.logger.error(`All verification methods failed:`);
+          this.logger.error(`  Method 1 (verifyMessage): ${addr1} vs ${holder}`);
+          this.logger.error(`  Method 2 (raw hash): ${addr2} vs ${holder}`);
+          this.logger.error(`  Method 3 (hashMessage): ${addr3} vs ${holder}`);
+          this.logger.error(`Signing data length: ${signingData.length}`);
+          this.logger.error(`Signing data (first 100): ${signingData.substring(0, 100)}`);
+          this.logger.error(`Signature: ${signature.substring(0, 20)}...`);
+          throw new Error('Invalid VP signature - all verification methods failed');
+        }
+      }
 
       if (recoveredAddress.toLowerCase() !== holder.toLowerCase()) {
         this.logger.error(`VP signature verification failed: ${recoveredAddress} vs ${holder}`);
-        this.logger.error(`Signing data length: ${signingData.length}`);
-        this.logger.error(`Message hash: ${messageHash}`);
-        this.logger.error(`Signature: ${signature.substring(0, 20)}...`);
         throw new Error('Invalid VP signature');
       }
 
@@ -240,11 +319,10 @@ export class AuthService {
       const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
       const signature = '0x' + Buffer.from(parts[2], 'base64url').toString('hex');
 
-      // Verify signature manually (same as VC verification)
+      // Verify signature manually
+      // ethers.verifyMessage already hashes with Ethereum prefix internally
       const signingData = `${parts[0]}.${parts[1]}`;
-      const messageHash = ethers.keccak256(ethers.toUtf8Bytes(signingData));
-
-      const recoveredAddress = ethers.verifyMessage(messageHash, signature);
+      const recoveredAddress = ethers.verifyMessage(signingData, signature);
       const expectedAddress = payload.iss?.replace('did:ethr:besu:', '');
 
       if (recoveredAddress.toLowerCase() !== expectedAddress?.toLowerCase()) {
@@ -273,10 +351,9 @@ export class AuthService {
 
             // Verify VC signature manually (JWT standard)
             // VC는 issuer(guardian)가 header.payload를 서명함
+            // ethers.verifyMessage already hashes with Ethereum prefix internally
             const vcSigningData = `${vcParts[0]}.${vcParts[1]}`;
-            const vcMessageHash = ethers.keccak256(ethers.toUtf8Bytes(vcSigningData));
-
-            const vcRecoveredAddress = ethers.verifyMessage(vcMessageHash, vcSignature);
+            const vcRecoveredAddress = ethers.verifyMessage(vcSigningData, vcSignature);
             const vcIssuerAddress = vcPayload.iss?.replace('did:ethr:besu:', '');
 
             // VC는 issuer(guardian)가 서명한 것이므로 issuer와 비교
@@ -438,5 +515,33 @@ export class AuthService {
     );
 
     return token;
+  }
+
+  /**
+   * Validate refresh token
+   */
+  async validateRefreshToken(token: string): Promise<any> {
+    try {
+      // 1. JWT 검증
+      const decoded = this.jwtService.verify(token);
+
+      // 2. Type 확인
+      if (decoded.type !== 'refresh') {
+        this.logger.warn('Token is not a refresh token');
+        return null;
+      }
+
+      // 3. Redis에서 확인
+      const storedToken = await this.redisService.get(`refresh:${decoded.address}`);
+      if (!storedToken || storedToken !== token) {
+        this.logger.warn('Refresh token not found in Redis or mismatch');
+        return null;
+      }
+
+      return decoded;
+    } catch (error) {
+      this.logger.error('Refresh token validation failed:', error);
+      return null;
+    }
   }
 }

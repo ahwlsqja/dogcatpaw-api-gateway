@@ -18,7 +18,7 @@ import { VcProcessor } from './vc.processor';
         options: {
           package: 'vc',
           protoPath: join(__dirname, '../../proto/vc.proto'),
-          url: process.env.VC_SERVICE_URL || 'localhost:50051',
+          url: process.env.VC_SERVICE_URL || 'localhost:50055',
           loader: {
             keepCase: true,
             longs: String,
