@@ -63,62 +63,66 @@ Hyperledger Besu (블록체인)
 ## 아키텍처
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        클라이언트 (Web/Mobile)                    │
-└─────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     API Gateway (NestJS)                         │
-│                                                                  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐            │
-│  │   Auth   │ │   Pet    │ │ Guardian │ │   Chat   │            │
-│  │  Module  │ │  Module  │ │  Module  │ │  Module  │            │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘            │
-│                                                                  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐            │
-│  │    VC    │ │  Faucet  │ │ Indexer  │ │  Spring  │            │
-│  │  Module  │ │  Module  │ │  Module  │ │  Proxy   │            │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘            │
-│                                                                  │
-│  ┌─────────────────┐  ┌─────────────────┐                       │
-│  │  NoseEmbedding  │  │   Blockchain    │                       │
-│  │     Module      │  │     Module      │                       │
-│  └─────────────────┘  └─────────────────┘                       │
-└─────────────────────────────────────────────────────────────────┘
-          │              │              │              │
-    ┌─────┴─────┐  ┌─────┴─────┐  ┌─────┴─────┐  ┌─────┴─────┐
-    │   gRPC    │  │   gRPC    │  │   gRPC    │  │   HTTP    │
-    └─────┬─────┘  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘
-          │              │              │              │
-          ▼              ▼              ▼              ▼
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│  VC Server   │ │  ML Server   │ │   Indexer    │ │    Spring    │
-│   (NestJS)   │ │  (FastAPI)   │ │     (Go)     │ │    Server    │
-│              │ │              │ │              │ │              │
-│ - VC 저장/발급│ │ - 특징벡터추출│ │ - 이벤트 인덱싱│ │ - 메인 CRUD   │
-│ - 인증 관리   │ │ - 유사도 비교 │ │ - 이전이력저장│ │ - DB 관리     │
-└──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘
-        │
-        ▼
-┌──────────────┐
-│Faucet Server │  (gRPC)
-│   (NestJS)   │
-│              │
-│ - 테스트토큰  │
-│   지급       │
-└──────────────┘
+                              ┌─────────────────────────────────┐
+                              │      NCloud Kubernetes Service   │
+                              └─────────────────────────────────┘
+                                              │
+        ┌───────────────────────────────────────────────────────────────────┐
+        │                            Ingress                                 │
+        │                                                                    │
+        │    / 경로 라우팅              /api 경로 라우팅                       │
+        └───────────────────────────────────────────────────────────────────┘
+                    │                           │
+                    ▼                           ▼
+        ┌───────────────────┐       ┌───────────────────────────────────────┐
+        │     Frontend      │       │         API Gateway (NestJS)          │
+        │     Next.js       │       │                                       │
+        └───────────────────┘       └───────────────────────────────────────┘
+                                                │
+                ┌───────────────┬───────────────┼───────────────┬───────────────┐
+                │               │               │               │               │
+                ▼               ▼               ▼               ▼               ▼
+        ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+        │   Faucet    │ │   Indexer   │ │   Domain    │ │  VC Server  │ │  ML Server  │
+        │   Server    │ │   Server    │ │   Server    │ │             │ │             │
+        │   (NestJS)  │ │    (Go)     │ │  (Spring)   │ │  (NestJS)   │ │  (FastAPI)  │
+        │             │ │             │ │             │ │             │ │             │
+        │   [gRPC]    │ │   [gRPC]    │ │   [HTTP]    │ │   [gRPC]    │ │   [gRPC]    │
+        └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
+                │               │               │               │               │
+                └───────────────┴───────────────┼───────────────┴───────────────┘
+                                                │
+                                                ▼
+                                    ┌───────────────────────┐
+                                    │       Database        │
+                                    │                       │
+                                    │  PostgreSQL  MySQL    │
+                                    │       Redis           │
+                                    └───────────────────────┘
+                                                │
+        ┌───────────────────────────────────────────────────────────────────┐
+        │                     Blockchain Service                             │
+        │                                                                    │
+        │    ┌──────────────────────────────────────────────────────────┐   │
+        │    │                  Hyperledger Besu                         │   │
+        │    │                                                           │   │
+        │    │      Node ←→ Node ←→ Node  (Route By Service LoadBalancer)│   │
+        │    │                                                           │   │
+        │    │   - PetDIDRegistry                                        │   │
+        │    │   - GuardianRegistry                                      │   │
+        │    │   - ShelterRegistry                                       │   │
+        │    └──────────────────────────────────────────────────────────┘   │
+        └───────────────────────────────────────────────────────────────────┘
 
-                              │
-                              ▼
-               ┌──────────────────────────┐
-               │   Hyperledger Besu       │
-               │      Blockchain          │
-               │                          │
-               │  - PetDIDRegistry        │
-               │  - GuardianRegistry      │
-               │  - ShelterRegistry       │
-               └──────────────────────────┘
+                              ┌─────────────────────────────────┐
+                              │           CI/CD Pipeline         │
+                              │                                  │
+                              │  SourcePipeline → SourceCommit   │
+                              │        ↓                         │
+                              │  SourceBuild → Container Registry│
+                              │        ↓                         │
+                              │  SourceDeploy                    │
+                              └─────────────────────────────────┘
 ```
 
 ---
@@ -131,7 +135,7 @@ Hyperledger Besu (블록체인)
 | **ML Server** | FastAPI | gRPC (`:50052`) | 비문 특징 벡터 추출, 유사도 검증 |
 | **Indexer** | Go | gRPC (`:50053`) | 블록체인 이벤트 인덱싱, 펫 이전 이력 조회 |
 | **Faucet Server** | NestJS | gRPC (`:50054`) | 신규 가입자 테스트 토큰 지급 |
-| **Spring Server** | Spring Boot | HTTP (`:8080`) | 메인 CRUD, 데이터베이스 관리, 게시물/채팅 |
+| **Domain Server (Spring)** | Spring Boot | HTTP (`:8080`) | 메인 CRUD, 데이터베이스 관리, 게시물/채팅 |
 
 ---
 
@@ -260,9 +264,11 @@ MSA 구조이지만 **SAGA 패턴을 사용할 수 없습니다**:
 - **Cache**: Redis (ioredis)
 
 ### Infrastructure
+- **Cloud**: NCloud (Naver Cloud Platform)
 - **Container**: Docker
-- **Orchestration**: Kubernetes
-- **Storage**: AWS S3
+- **Orchestration**: Kubernetes (NKS)
+- **Storage**: AWS S3 / NCloud Object Storage
+- **CI/CD**: SourcePipeline, SourceBuild, SourceDeploy
 
 ---
 
@@ -312,46 +318,127 @@ kubectl apply -f k8s/
 ## API 엔드포인트
 
 ### Authentication
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/auth/challenge` | Challenge 문자열 요청 |
-| POST | `/api/auth/login` | 지갑 서명으로 로그인 (VP 발급) |
-| POST | `/api/auth/refresh` | JWT 토큰 갱신 |
-| POST | `/api/auth/logout` | 로그아웃 |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/auth/challenge` | - | Challenge 문자열 요청 |
+| POST | `/api/auth/login` | - | 지갑 서명으로 로그인 (VP 발급) |
+| POST | `/api/auth/refresh` | JWT | JWT 토큰 갱신 |
+| POST | `/api/auth/logout` | JWT | 로그아웃 |
 
 ### Pet
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/pet/prepare-registration` | 펫 등록 준비 (서명 데이터 생성) |
-| POST | `/pet/register` | 펫 등록 (서명된 트랜잭션 제출) |
-| GET | `/pet/:petDID` | 펫 정보 조회 |
-| PATCH | `/pet/:petDID/transfer` | 펫 보호권 이전 |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/pet/prepare-registration` | JWT | 펫 등록 준비 (서명 데이터 생성) |
+| POST | `/pet/register` | JWT | 펫 등록 (서명된 트랜잭션 제출) |
+| GET | `/pet/:petDID` | JWT | 펫 정보 조회 |
+| PATCH | `/pet/:petDID/transfer` | JWT | 펫 보호권 이전 |
 
 ### Guardian
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/guardian/prepare-registration` | 보호자 등록 준비 |
-| POST | `/guardian/register` | 보호자 등록 |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/guardian/prepare-registration` | - | 보호자 등록 준비 |
+| POST | `/guardian/register` | - | 보호자 등록 |
 
 ### Verifiable Credentials
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/vc/:petDID` | 펫의 VC 조회 |
-| GET | `/vc/wallet/:address` | 지갑의 모든 VC 조회 |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/vc/:petDID` | JWT | 펫의 VC 조회 |
+| GET | `/vc/wallet/:address` | JWT | 지갑의 모든 VC 조회 |
 
 ### Faucet
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/faucet/request` | 테스트 토큰 요청 |
-| GET | `/faucet/balance` | Faucet 잔액 조회 |
-| GET | `/faucet/history` | 지급 이력 조회 |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/faucet/request` | JWT | 테스트 토큰 요청 |
+| GET | `/faucet/balance` | JWT | Faucet 잔액 조회 |
+| GET | `/faucet/history` | JWT | 지급 이력 조회 |
 
-### Chat (WebSocket)
+---
+
+### Spring Backend Proxy API
+
+Spring 백엔드로 프록시되는 API 엔드포인트입니다.
+
+#### Pet Profile
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/pet` | JWT | 내 펫 목록 조회 |
+
+#### Adoption (입양 공고)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/adoption` | - | 입양 공고 목록 조회 (커서 페이지네이션) |
+| GET | `/api/adoption/detail/:adoptId` | - | 입양 공고 상세 조회 |
+| GET | `/api/adoption/home` | - | 홈 화면 데이터 조회 |
+| POST | `/api/adoption/post` | JWT | 입양 공고 작성 |
+| PATCH | `/api/adoption/:adoptionId` | JWT | 입양 공고 수정 |
+| PATCH | `/api/adoption/:adoptionId/delegate` | JWT | 입양 완료 처리 |
+
+#### Daily Story (일상 일지)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/story/daily` | JWT | 일상 일지 작성 |
+| GET | `/api/story/daily/stories` | - | 일상 일지 피드 조회 |
+| GET | `/api/story/daily/:storyId` | - | 일상 일지 상세 조회 |
+| DELETE | `/api/story/daily/:storyId` | JWT | 일상 일지 삭제 |
+
+#### Review Story (입양 후기)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/story/review` | JWT | 입양 후기 작성 |
+| GET | `/api/story/review/reviews` | - | 입양 후기 피드 조회 |
+| GET | `/api/story/review/:reviewId` | - | 입양 후기 상세 조회 |
+| DELETE | `/api/story/review/:storyId` | JWT | 입양 후기 삭제 |
+
+#### Like & Comment (좋아요/댓글)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/like` | JWT | 좋아요 토글 (storyId 쿼리 파라미터) |
+| GET | `/api/comment` | - | 댓글 목록 조회 (storyId 쿼리 파라미터) |
+| POST | `/api/comment` | JWT | 댓글 작성 |
+| DELETE | `/api/comment/:commentId` | JWT | 댓글 삭제 |
+
+#### Chat (채팅)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/chat/room/create` | JWT | 채팅방 생성 (입양 문의) |
+| GET | `/api/chat/room/list` | JWT | 내 채팅방 목록 조회 |
+| GET | `/api/chat/room/card` | JWT | 채팅방 카드 정보 조회 (roomId 쿼리) |
+| POST | `/api/chat/:roomId/enter` | JWT | 채팅방 입장 및 메시지 이력 조회 |
+| GET | `/api/chat/room/:roomId/adoption` | JWT | 채팅방 관련 입양 공고 정보 조회 |
+
+#### Chat (WebSocket Events)
 | Event | Description |
 |-------|-------------|
-| `join-room` | 채팅방 입장 |
-| `send-message` | 메시지 전송 |
-| `leave-room` | 채팅방 퇴장 |
+| `joinRoom` | 채팅방 입장 (메시지 이력 반환) |
+| `sendMessage` | 메시지 전송 |
+| `message` | 실시간 메시지 수신 |
+| `leaveRoom` | 채팅방 퇴장 |
+
+#### Donation (후원)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/donation/posts` | JWT | 후원 캠페인 생성 |
+| GET | `/api/donation/list` | - | 후원 캠페인 목록 조회 |
+| GET | `/api/donation/:donationId` | - | 후원 캠페인 상세 및 후원 이력 조회 |
+| POST | `/api/donations` | JWT | 뼈다귀(Bones)로 후원하기 |
+| GET | `/api/donations/mine` | JWT | 내 후원 이력 조회 |
+| GET | `/api/donations/bone` | JWT | 내 뼈다귀 잔액 조회 |
+
+#### Payment (결제)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/payment/prepare` | JWT | 뼈다귀 구매 결제 준비 |
+| POST | `/api/payment/approve` | JWT | 결제 승인 및 뼈다귀 충전 |
+
+#### Admin (관리자)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/admin` | JWT (ADMIN) | 전체 회원 및 펫 목록 조회 |
+
+#### Shelter (보호소)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/shelter` | - | 보호소 목록 조회 (지역/키워드 필터) |
 
 ---
 
